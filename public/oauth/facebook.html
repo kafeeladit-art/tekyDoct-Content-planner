@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log in with Facebook</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Helvetica, Arial, sans-serif; background: #f0f2f5; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 8px; padding: 24px; width: 376px; box-shadow: 0 2px 12px rgba(0,0,0,0.15); }
+  .header { text-align: center; margin-bottom: 20px; }
+  .fb-logo { font-size: 36px; color: #1877f2; font-weight: 900; letter-spacing: -1px; }
+  h2 { font-size: 20px; color: #1c1e21; margin: 8px 0 4px; }
+  .subtitle { font-size: 14px; color: #606770; }
+  .divider { border: none; border-top: 1px solid #dddfe2; margin: 16px 0; }
+  .page-row { display: flex; align-items: center; gap: 12px; background: #f0f2f5; border-radius: 8px; padding: 12px; margin-bottom: 16px; }
+  .avatar { width: 44px; height: 44px; border-radius: 8px; background: #1877f2; color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; }
+  .page-info .name { font-weight: 700; font-size: 14px; color: #1c1e21; }
+  .page-info .meta { font-size: 12px; color: #606770; }
+  .section-title { font-size: 13px; font-weight: 700; color: #1c1e21; margin-bottom: 10px; }
+  .perm-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 13px; color: #444; }
+  .perm-icon { color: #1877f2; font-weight: 700; flex-shrink: 0; }
+  .btn { width: 100%; padding: 12px; border-radius: 6px; border: none; cursor: pointer; font-size: 16px; font-weight: 700; transition: all .15s; }
+  .btn-allow { background: #1877f2; color: #fff; margin-bottom: 10px; }
+  .btn-allow:hover { background: #166fe5; }
+  .btn-allow:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-cancel { background: #e4e6eb; color: #1c1e21; }
+  .btn-cancel:hover { background: #d8dadf; }
+  .footer { text-align: center; font-size: 11px; color: #8a8d91; margin-top: 14px; line-height: 1.6; }
+  .footer a { color: #1877f2; text-decoration: none; }
+  .spinner { display: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="header">
+    <div class="fb-logo">facebook</div>
+    <h2>Continue as TekyDoct</h2>
+    <p class="subtitle"><strong>TekyDoct Social Planner</strong> wants to access your Page</p>
+  </div>
+  <hr class="divider">
+
+  <div class="page-row">
+    <div class="avatar">TD</div>
+    <div class="page-info">
+      <div class="name">TekyDoct Sdn Bhd</div>
+      <div class="meta">Technology Company · 3,421 followers · Page</div>
+    </div>
+  </div>
+
+  <div class="section-title">TekyDoct Social Planner will receive:</div>
+  <div class="perm-item"><span class="perm-icon">✓</span> Your public profile, name, and profile picture</div>
+  <div class="perm-item"><span class="perm-icon">✓</span> Manage and publish content to your Page</div>
+  <div class="perm-item"><span class="perm-icon">✓</span> Access Page insights and performance data</div>
+  <div class="perm-item"><span class="perm-icon">✓</span> Read and manage Page messages and comments</div>
+  <div class="perm-item"><span class="perm-icon">✓</span> Schedule posts for automatic publishing</div>
+
+  <hr class="divider">
+
+  <button class="btn btn-allow" id="allowBtn" onclick="authorize()">
+    <span id="btnText">Continue as TekyDoct</span>
+    <div class="spinner" id="spinner"></div>
+  </button>
+  <button class="btn btn-cancel" onclick="cancel()">Cancel</button>
+
+  <p class="footer">
+    By continuing, you allow TekyDoct Social Planner to use your information<br>
+    in accordance with their <a href="#">Privacy Policy</a> and <a href="#">Terms of Service</a>.<br>
+    You can remove access in <strong>Settings &gt; Business Integrations</strong> at any time.
+  </p>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session');
+
+  async function authorize() {
+    const btn = document.getElementById('allowBtn');
+    btn.disabled = true;
+    document.getElementById('btnText').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+    try {
+      const resp = await fetch('/api/oauth/facebook/authorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        window.opener && window.opener.postMessage({ type: 'oauth_success', platform: 'facebook', account: data.account }, '*');
+        setTimeout(() => window.close(), 400);
+      }
+    } catch(e) {
+      btn.disabled = false;
+      document.getElementById('btnText').style.display = 'block';
+      document.getElementById('spinner').style.display = 'none';
+    }
+  }
+
+  function cancel() {
+    window.opener && window.opener.postMessage({ type: 'oauth_cancel', platform: 'facebook' }, '*');
+    window.close();
+  }
+</script>
+</body>
+</html>

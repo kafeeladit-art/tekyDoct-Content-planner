@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Sign in with LinkedIn</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #f3f2ef; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border-radius: 8px; padding: 32px; width: 360px; box-shadow: 0 4px 24px rgba(0,0,0,0.12); }
+  .logo { display: flex; align-items: center; gap: 10px; margin-bottom: 24px; }
+  .logo svg { width: 28px; height: 28px; }
+  .logo span { font-size: 20px; font-weight: 700; color: #0a66c2; }
+  h2 { font-size: 18px; color: #1d2226; margin-bottom: 6px; }
+  .app-name { color: #0a66c2; font-weight: 600; }
+  .subtitle { font-size: 13px; color: #666; margin-bottom: 20px; }
+  .profile-row { display: flex; align-items: center; gap: 12px; background: #f3f2ef; border-radius: 8px; padding: 12px 14px; margin-bottom: 20px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; background: #0a66c2; color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .profile-info .name { font-weight: 600; font-size: 14px; color: #1d2226; }
+  .profile-info .handle { font-size: 12px; color: #666; }
+  .perms { margin-bottom: 22px; }
+  .perms p { font-size: 13px; color: #1d2226; font-weight: 600; margin-bottom: 10px; }
+  .perm-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 10px; font-size: 13px; color: #444; }
+  .perm-item::before { content: '✓'; color: #0a66c2; font-weight: 700; flex-shrink: 0; margin-top: 1px; }
+  .btn { width: 100%; padding: 12px; border-radius: 24px; border: none; cursor: pointer; font-size: 15px; font-weight: 600; transition: all .2s; }
+  .btn-allow { background: #0a66c2; color: #fff; margin-bottom: 10px; }
+  .btn-allow:hover { background: #004182; }
+  .btn-allow:disabled { opacity: .7; cursor: not-allowed; }
+  .btn-cancel { background: transparent; color: #666; border: 1.5px solid #ccc; }
+  .btn-cancel:hover { background: #f3f2ef; }
+  .footer { text-align: center; font-size: 11px; color: #999; margin-top: 16px; }
+  .spinner { display: none; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <svg viewBox="0 0 24 24" fill="#0a66c2"><path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z"/></svg>
+    <span>LinkedIn</span>
+  </div>
+  <h2><span class="app-name">TekyDoct Social Planner</span> wants to access your LinkedIn account</h2>
+  <p class="subtitle">tekydoct.in · Verified Business App</p>
+
+  <div class="profile-row">
+    <div class="avatar">TD</div>
+    <div class="profile-info">
+      <div class="name">TekyDoct Sdn Bhd</div>
+      <div class="handle">linkedin.com/company/tekydoct · 2,847 followers</div>
+    </div>
+  </div>
+
+  <div class="perms">
+    <p>This app will be able to:</p>
+    <div class="perm-item">View your profile and company page information</div>
+    <div class="perm-item">Create, edit, and delete posts on your behalf</div>
+    <div class="perm-item">View post analytics and engagement data</div>
+    <div class="perm-item">Schedule content for future publishing</div>
+    <div class="perm-item">Read comments and messages (read-only)</div>
+  </div>
+
+  <button class="btn btn-allow" id="allowBtn" onclick="authorize()">
+    <span id="btnText">Allow Access</span>
+    <div class="spinner" id="spinner"></div>
+  </button>
+  <button class="btn btn-cancel" onclick="cancel()">Cancel</button>
+  <div class="footer">By allowing, you agree to LinkedIn's Terms of Service.<br>You can revoke access at any time in your LinkedIn settings.</div>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session');
+
+  async function authorize() {
+    const btn = document.getElementById('allowBtn');
+    btn.disabled = true;
+    document.getElementById('btnText').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+
+    try {
+      const resp = await fetch('/api/oauth/linkedin/authorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        window.opener && window.opener.postMessage({ type: 'oauth_success', platform: 'linkedin', account: data.account }, '*');
+        setTimeout(() => window.close(), 400);
+      }
+    } catch(e) {
+      btn.disabled = false;
+      document.getElementById('btnText').style.display = 'block';
+      document.getElementById('spinner').style.display = 'none';
+    }
+  }
+
+  function cancel() {
+    window.opener && window.opener.postMessage({ type: 'oauth_cancel', platform: 'linkedin' }, '*');
+    window.close();
+  }
+</script>
+</body>
+</html>

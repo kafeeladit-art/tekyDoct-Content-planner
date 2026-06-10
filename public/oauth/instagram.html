@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Connect Instagram</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: -apple-system, 'Segoe UI', Arial, sans-serif; background: #fafafa; display: flex; align-items: center; justify-content: center; min-height: 100vh; }
+  .card { background: #fff; border: 1px solid #dbdbdb; border-radius: 12px; padding: 32px; width: 360px; }
+  .logo { text-align: center; margin-bottom: 20px; }
+  .ig-logo { width: 52px; height: 52px; border-radius: 14px; background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); display: inline-flex; align-items: center; justify-content: center; }
+  .ig-logo svg { width: 30px; height: 30px; fill: #fff; }
+  h2 { font-size: 16px; color: #262626; text-align: center; margin-bottom: 4px; font-weight: 600; }
+  .app-label { font-size: 13px; color: #8e8e8e; text-align: center; margin-bottom: 20px; }
+  .divider { border: none; border-top: 1px solid #efefef; margin: 16px 0; }
+  .profile-row { display: flex; align-items: center; gap: 12px; margin-bottom: 20px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(45deg, #f09433, #dc2743, #bc1888); color: #fff; font-weight: 700; font-size: 16px; display: flex; align-items: center; justify-content: center; }
+  .profile-info .name { font-weight: 600; font-size: 14px; color: #262626; }
+  .profile-info .handle { font-size: 12px; color: #8e8e8e; }
+  .perms p { font-size: 13px; color: #262626; font-weight: 600; margin-bottom: 10px; }
+  .perm-item { display: flex; align-items: flex-start; gap: 10px; margin-bottom: 8px; font-size: 13px; color: #444; }
+  .perm-item::before { content: '✓'; color: #e1306c; font-weight: 700; flex-shrink: 0; }
+  .btn { width: 100%; padding: 10px; border-radius: 8px; border: none; cursor: pointer; font-size: 14px; font-weight: 600; transition: all .2s; margin-top: 10px; }
+  .btn-allow { background: linear-gradient(45deg, #f09433, #e6683c, #dc2743, #cc2366, #bc1888); color: #fff; }
+  .btn-allow:hover { opacity: .9; }
+  .btn-allow:disabled { opacity: .6; cursor: not-allowed; }
+  .btn-cancel { background: transparent; color: #8e8e8e; border: 1px solid #dbdbdb; margin-top: 8px; }
+  .btn-cancel:hover { background: #fafafa; }
+  .footer { text-align: center; font-size: 11px; color: #8e8e8e; margin-top: 16px; line-height: 1.5; }
+  .spinner { display: none; width: 16px; height: 16px; border: 2px solid rgba(255,255,255,.4); border-top-color: #fff; border-radius: 50%; animation: spin .7s linear infinite; margin: 0 auto; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+</style>
+</head>
+<body>
+<div class="card">
+  <div class="logo">
+    <div class="ig-logo">
+      <svg viewBox="0 0 24 24"><path d="M12 2.163c3.204 0 3.584.012 4.85.07 3.252.148 4.771 1.691 4.919 4.919.058 1.265.069 1.645.069 4.849 0 3.205-.012 3.584-.069 4.849-.149 3.225-1.664 4.771-4.919 4.919-1.266.058-1.644.07-4.85.07-3.204 0-3.584-.012-4.849-.07-3.26-.149-4.771-1.699-4.919-4.92-.058-1.265-.07-1.644-.07-4.849 0-3.204.013-3.583.07-4.849.149-3.227 1.664-4.771 4.919-4.919 1.266-.057 1.645-.069 4.849-.069zM12 0C8.741 0 8.333.014 7.053.072 2.695.272.273 2.69.073 7.052.014 8.333 0 8.741 0 12c0 3.259.014 3.668.072 4.948.2 4.358 2.618 6.78 6.98 6.98C8.333 23.986 8.741 24 12 24c3.259 0 3.668-.014 4.948-.072 4.354-.2 6.782-2.618 6.979-6.98.059-1.28.073-1.689.073-4.948 0-3.259-.014-3.667-.072-4.947-.196-4.354-2.617-6.78-6.979-6.98C15.668.014 15.259 0 12 0zm0 5.838a6.162 6.162 0 1 0 0 12.324 6.162 6.162 0 0 0 0-12.324zM12 16a4 4 0 1 1 0-8 4 4 0 0 1 0 8zm6.406-11.845a1.44 1.44 0 1 0 0 2.881 1.44 1.44 0 0 0 0-2.881z"/></svg>
+    </div>
+  </div>
+  <h2>Connect your Instagram Business Account</h2>
+  <p class="app-label">TekyDoct Social Planner · @tekydoct</p>
+  <hr class="divider">
+
+  <div class="profile-row">
+    <div class="avatar">TD</div>
+    <div class="profile-info">
+      <div class="name">TekyDoct</div>
+      <div class="handle">@tekydoct · 1,234 followers · Business Account</div>
+    </div>
+  </div>
+
+  <div class="perms">
+    <p>TekyDoct Social Planner will be able to:</p>
+    <div class="perm-item">View profile info, bio, and follower count</div>
+    <div class="perm-item">Create and publish posts, Reels, and Stories</div>
+    <div class="perm-item">View post insights and engagement metrics</div>
+    <div class="perm-item">Schedule content for automatic publishing</div>
+    <div class="perm-item">Manage and respond to comments</div>
+  </div>
+
+  <button class="btn btn-allow" id="allowBtn" onclick="authorize()">
+    <span id="btnText">Connect Instagram</span>
+    <div class="spinner" id="spinner"></div>
+  </button>
+  <button class="btn btn-cancel" onclick="cancel()">Not Now</button>
+  <p class="footer">You can disconnect at any time in Instagram Settings.<br>Your password is never shared with third-party apps.</p>
+</div>
+
+<script>
+  const params = new URLSearchParams(window.location.search);
+  const sessionId = params.get('session');
+
+  async function authorize() {
+    const btn = document.getElementById('allowBtn');
+    btn.disabled = true;
+    document.getElementById('btnText').style.display = 'none';
+    document.getElementById('spinner').style.display = 'block';
+    try {
+      const resp = await fetch('/api/oauth/instagram/authorize', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sessionId })
+      });
+      const data = await resp.json();
+      if (data.success) {
+        window.opener && window.opener.postMessage({ type: 'oauth_success', platform: 'instagram', account: data.account }, '*');
+        setTimeout(() => window.close(), 400);
+      }
+    } catch(e) {
+      btn.disabled = false;
+      document.getElementById('btnText').style.display = 'block';
+      document.getElementById('spinner').style.display = 'none';
+    }
+  }
+
+  function cancel() {
+    window.opener && window.opener.postMessage({ type: 'oauth_cancel', platform: 'instagram' }, '*');
+    window.close();
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,47 @@
+TekyDoct Social Planner — Local Server Setup
+=============================================
+
+REQUIREMENTS
+  • Node.js (v16 or newer)  https://nodejs.org
+  • A modern browser (Chrome, Edge, Firefox)
+
+FIRST-TIME SETUP
+  1. Open Terminal (Mac) or Command Prompt (Windows)
+  2. Navigate into this folder:
+       cd path/to/tekyDoct-planner
+  3. Install dependencies (only needed once):
+       npm install
+
+RUN THE SERVER
+  node server.js
+
+  Then open your browser:  http://localhost:3000
+
+STOP THE SERVER
+  Press Ctrl + C in the terminal
+
+PROJECT STRUCTURE
+  tekyDoct-planner/
+  ├── server.js               Express backend (port 3000)
+  ├── package.json            Node dependencies
+  └── public/
+      ├── index.html          Main SPA (Pehia UI)
+      └── oauth/
+          ├── linkedin.html   LinkedIn OAuth consent screen
+          ├── instagram.html  Instagram OAuth consent screen
+          └── facebook.html   Facebook OAuth consent screen
+
+FEATURES
+  • Dashboard — stats, platform reach, engagement charts
+  • Content Calendar — visual June 2026 calendar + scheduled posts
+  • Create Post — compose, schedule, or draft across platforms
+  • Analytics — 7d / 30d / 90d charts per platform
+  • Live Monitor — real-time SSE activity feed
+  • Linked Accounts — OAuth popup flow for LI / IG / FB
+  • AI Caption Generator — TekyDoct brand-aware captions
+
+LINKING ACCOUNTS (DEMO)
+  Go to "Linked Accounts" and click Connect on any platform.
+  A real-looking OAuth consent popup will open.
+  Click "Allow Access" — the account links instantly.
+  No real API keys are needed; all data is simulated.
