@@ -133,6 +133,7 @@ app.get('/oauth/linkedin/callback', async (req, res) => {
     };
     state.platforms.linkedin = { connected: true, account, token: tData.access_token };
     state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `LinkedIn "${account.name}" connected`, time: new Date().toISOString(), read: false });
+    broadcastSSE({type:'connect',platform:'linkedin',msg:`LinkedIn account "${account.name}" connected`,icon:'🔗'});
     res.send(popupMsg('linkedin', true, { account }));
   } catch(e) {
     console.error('LinkedIn callback error:', e.message);
@@ -176,6 +177,7 @@ app.get('/oauth/facebook/callback', async (req, res) => {
     };
     state.platforms.facebook = { connected: true, account: fbAccount, token: page.access_token };
     state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Facebook Page "${fbAccount.name}" connected`, time: new Date().toISOString(), read: false });
+    broadcastSSE({type:'connect',platform:'facebook',msg:`Facebook Page "${fbAccount.name}" connected`,icon:'🔗'});
 
     // Auto-connect linked Instagram Business Account
     if (pg.instagram_business_account?.id) {
@@ -281,6 +283,7 @@ app.post('/api/posts', async (req, res) => {
 
   state.posts.unshift(post);
   state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Post ${post.status} on ${platform}`, time: new Date().toISOString(), read: false });
+  if (post.status === 'published') broadcastSSE({type:'publish',platform,msg:`Post published on ${platform}: "${content.slice(0,60)}..."`,icon:'✅'});
   res.json(post);
 });
 
@@ -314,12 +317,17 @@ app.post('/api/ai/generate', async (req, res) => {
       { role: 'user', content: `Write a ${platform} post about "${topic}" in a ${tone} tone.\nRequirements: ${guide[platform]||guide.linkedin}\nReturn ONLY the caption text with hashtags. No labels, no quotes, no preamble.` }
     ], { max_tokens: 450 });
 
+    const followers = state.platforms[platform]?.account?.followers || 0;
+    const recentPosts = state.posts.filter(p=>p.platform===platform&&p.status==='published');
+    const avgEng = recentPosts.length
+      ? (recentPosts.reduce((a,p)=>{const e=p.engagement;return a+(e&&e.reach>0?(e.likes+e.comments+e.shares)/e.reach*100:0);},0)/recentPosts.length).toFixed(1)
+      : null;
     res.json({
       caption,
       hashtags: (caption.match(/#\w+/g)||[]).slice(0,12),
-      estimatedReach: Math.round(Math.random()*1500+800),
+      estimatedReach: followers ? Math.round(followers * 0.08) : null,
       bestTime: platform==='linkedin'?'Tue–Thu 9–11 AM BST':platform==='instagram'?'Mon/Wed/Fri 11AM–6PM BST':'Wed 1PM or Fri 2PM BST',
-      engagementScore: (Math.random()*2+4).toFixed(1),
+      engagementScore: avgEng,
       aiPowered: true
     });
   } catch(e) {
@@ -329,23 +337,36 @@ app.post('/api/ai/generate', async (req, res) => {
 
 // ─── Brand Health ─────────────────────────────────────────────────────────────
 function brandHealth() {
-  const pub = state.posts.filter(p => p.status === 'published');
-  const base = { linkedin: 68, instagram: 61, facebook: 54 };
+  const cutoff = new Date(Date.now()-30*86400000);
   const details = {};
+  let totalScore = 0, connectedCount = 0;
   for (const p of ['linkedin','instagram','facebook']) {
-    const pp = pub.filter(x => x.platform === p);
     const connected = state.platforms[p].connected;
     const followers = state.platforms[p].account?.followers || 0;
-    const connectedBonus = connected ? 8 : 0;
-    const score = Math.min(Math.max(Math.round(base[p] + connectedBonus + (Math.random()-0.3)*6), 40), 98);
+    if (!connected) {
+      details[p] = { score:0, connected:false, followers:0, engagementRate:'0.0', postCount:0, status:'not_connected' };
+      continue;
+    }
+    connectedCount++;
+    const allPosts = state.posts.filter(x=>x.platform===p&&x.status==='published');
+    const recentPosts = allPosts.filter(x=>x.publishedAt&&new Date(x.publishedAt)>=cutoff);
+    const postFreq = recentPosts.length;
+    const withEng = recentPosts.filter(x=>x.engagement?.reach>0);
+    const engRate = withEng.length
+      ? (withEng.reduce((a,x)=>{const e=x.engagement;return a+(e.likes+e.comments+e.shares)/e.reach*100;},0)/withEng.length)
+      : 0;
+    // Score: 40 base for connected + up to 30 for post frequency (target 8/mo) + up to 30 for engagement (target 4%)
+    const score = Math.min(Math.round(40 + Math.min(postFreq/8*30,30) + Math.min(engRate/4*30,30)), 100);
+    totalScore += score;
     details[p] = {
       score, connected, followers,
-      engagementRate: (Math.random()*3+2).toFixed(1),
-      postCount: pp.length,
-      status: score>=75?'healthy':score>=55?'moderate':'needs_attention'
+      engagementRate: engRate.toFixed(1),
+      postCount: allPosts.length,
+      status: score>=75?'healthy':score>=50?'moderate':'needs_attention'
     };
   }
-  return { overall: Math.round((details.linkedin.score+details.instagram.score+details.facebook.score)/3), platforms: details, computedAt: new Date().toISOString() };
+  const overall = connectedCount > 0 ? Math.round(totalScore/connectedCount) : 0;
+  return { overall, platforms: details, computedAt: new Date().toISOString() };
 }
 
 app.get('/api/brand-health', (req, res) => res.json(brandHealth()));
@@ -380,23 +401,30 @@ app.get('/api/trends', async (req, res) => {
   }
 });
 
-// ─── Analytics ────────────────────────────────────────────────────────────────
+// ─── Analytics — real data only ───────────────────────────────────────────────
 function analyticsEstimate(platform, period) {
   const days = period==='7d'?7:period==='30d'?30:90;
-  const base = { linkedin:{r:1200,e:4.2}, instagram:{r:2000,e:5.8}, facebook:{r:900,e:3.1} }[platform];
   const labels=[],reach=[],engagement=[],clicks=[];
   for (let i=days-1;i>=0;i--) {
     const d = new Date(Date.now()-i*86400000);
+    const dateStr = d.toISOString().split('T')[0];
     labels.push(d.toLocaleDateString('en-GB',{month:'short',day:'numeric'}));
-    reach.push(Math.round(base.r+(Math.random()-.4)*base.r*.25));
-    engagement.push((base.e+(Math.random()-.5)*1.2).toFixed(1));
-    clicks.push(Math.round(Math.random()*80+20));
+    const dayPosts = state.posts.filter(p=>p.platform===platform&&p.status==='published'&&p.publishedAt?.startsWith(dateStr));
+    const r = dayPosts.reduce((a,p)=>a+(p.engagement?.reach||0),0);
+    const c = dayPosts.reduce((a,p)=>a+(p.engagement?.clicks||0),0);
+    const withEng = dayPosts.filter(p=>p.engagement?.reach>0);
+    const e = withEng.length
+      ? (withEng.reduce((a,p)=>{const en=p.engagement;return a+(en.likes+en.comments+en.shares)/en.reach*100;},0)/withEng.length).toFixed(1)
+      : '0.0';
+    reach.push(r); engagement.push(e); clicks.push(c);
   }
+  const published = state.posts.filter(p=>p.platform===platform&&p.status==='published');
+  const engArr = engagement.map(parseFloat).filter(v=>v>0);
   const totals = {
     reach: reach.reduce((a,b)=>a+b,0),
-    engagement: (engagement.reduce((a,b)=>a+parseFloat(b),0)/engagement.length).toFixed(1),
+    engagement: engArr.length ? (engArr.reduce((a,b)=>a+b,0)/engArr.length).toFixed(1) : '0.0',
     clicks: clicks.reduce((a,b)=>a+b,0),
-    posts: state.posts.filter(p=>p.platform===platform&&p.status==='published').length,
+    posts: published.filter(p=>new Date(p.publishedAt)>=new Date(Date.now()-days*86400000)).length,
     followers: state.platforms[platform]?.account?.followers||0
   };
   return { labels, datasets:{reach,engagement,clicks}, totals };
@@ -496,7 +524,7 @@ app.get('/api/planner/monthly', (req, res) => {
     const weekNum = Math.ceil((d+((firstDay.getDay()+6)%7))/7);
     const theme = themes[Math.min(weekNum-1,3)];
     const plats = [1,2,4].includes(dow)?['linkedin']:[3].includes(dow)?['instagram','facebook']:[5].includes(dow)?['instagram']:[];
-    calendar[d] = { date:date.toISOString().split('T')[0], theme:theme.theme, themeColor:theme.color, themeIcon:theme.icon, posts:plats.map(pl=>({platform:pl,time:{linkedin:'09:00',instagram:'11:00',facebook:'13:00'}[pl],predictedReach:Math.round({linkedin:1200,instagram:1800,facebook:850}[pl]+Math.random()*300)})) };
+    calendar[d] = { date:date.toISOString().split('T')[0], theme:theme.theme, themeColor:theme.color, themeIcon:theme.icon, posts:plats.map(pl=>({platform:pl,time:{linkedin:'09:00',instagram:'11:00',facebook:'13:00'}[pl],predictedReach:state.platforms[pl]?.account?.followers?Math.round(state.platforms[pl].account.followers*0.08):null})) };
   }
   res.json({ year, month, monthName:new Date(year,month,1).toLocaleString('en-GB',{month:'long',year:'numeric'}), themes, calendar, totalPostDays:Object.values(calendar).filter(d=>d.posts?.length>0).length, aiPowered:!!getOpenAI() });
 });
@@ -520,26 +548,24 @@ app.post('/api/settings/credentials', (req, res) => {
   res.json({ success:true });
 });
 
-// ─── SSE Monitoring ───────────────────────────────────────────────────────────
+// ─── SSE Monitoring — real notifications only ─────────────────────────────────
+const sseClients = new Set();
 app.get('/api/monitoring/stream', (req, res) => {
   res.setHeader('Content-Type','text/event-stream');
   res.setHeader('Cache-Control','no-cache');
   res.setHeader('Connection','keep-alive');
   res.flushHeaders();
-  const evts = [
-    {type:'like',platform:'linkedin',msg:'Someone liked your LinkedIn post about Zoho CRM',icon:'👍'},
-    {type:'comment',platform:'instagram',msg:'New comment on your Instagram post',icon:'💬'},
-    {type:'share',platform:'facebook',msg:'Your Facebook post was shared',icon:'🔁'},
-    {type:'follow',platform:'instagram',msg:'New Instagram followers',icon:'➕'},
-    {type:'mention',platform:'linkedin',msg:'TekyDoct was mentioned on LinkedIn',icon:'📢'},
-    {type:'message',platform:'facebook',msg:'New inquiry message on Facebook Page',icon:'✉️'},
-    {type:'reach',platform:'instagram',msg:'Your Instagram story hit 400 views',icon:'👁️'},
-  ];
-  const send = () => res.write(`data: ${JSON.stringify({...evts[Math.floor(Math.random()*evts.length)],id:'e'+Date.now(),timestamp:new Date().toISOString()})}\n\n`);
-  send();
-  const iv = setInterval(send, Math.random()*8000+6000);
-  req.on('close',()=>clearInterval(iv));
+  // Send connected platforms status on connect
+  const connected = Object.entries(state.platforms).filter(([,v])=>v.connected).map(([k])=>k);
+  res.write(`data: ${JSON.stringify({type:'connected',msg:connected.length?`Monitoring ${connected.join(', ')} — waiting for activity`:'No platforms connected yet. Link accounts to start monitoring.',icon:'📡',id:'init',timestamp:new Date().toISOString()})}\n\n`);
+  sseClients.add(res);
+  req.on('close',()=>sseClients.delete(res));
 });
+
+function broadcastSSE(event) {
+  const data = `data: ${JSON.stringify({...event,id:'e'+Date.now(),timestamp:new Date().toISOString()})}\n\n`;
+  for (const client of sseClients) { try { client.write(data); } catch(_) { sseClients.delete(client); } }
+}
 
 // ─── SPA ──────────────────────────────────────────────────────────────────────
 app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html')));
