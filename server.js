@@ -3,844 +3,551 @@ const path = require('path');
 const crypto = require('crypto');
 const OpenAI = require('openai');
 
-// ─── OpenAI Client ─────────────────────────────────────────────────────────────
-let _openaiClient = null;
-let _openaiKey = null;
-
-function getOpenAI() {
-  const key = process.env.OPENAI_API_KEY || state?.credentials?.openai || '';
-  if (!key) return null;
-  if (!_openaiClient || _openaiKey !== key) {
-    _openaiClient = new OpenAI({ apiKey: key });
-    _openaiKey = key;
-  }
-  return _openaiClient;
-}
-
-const TEKYDOCT_SYSTEM = `You are an expert social media strategist for TekyDoct Sdn Bhd — Brunei's #1 Zoho Premium Partner since 2006.
-About TekyDoct:
-- Brunei-based IT solutions company, 18+ years in business
-- Services: Zoho CRM, Zoho One, Zoho Books, Zoho Campaigns, IP CCTV & Security, Structured Cabling & Networking, WiFi Solutions, Digital Transformation, IT Procurement
-- Target audience: Brunei SMEs, corporations, government-linked companies
-- Brand voice: Professional, knowledgeable, locally relevant, solution-focused
-- Key differentiators: Brunei's only Zoho Premium Partner, 150+ clients, full-stack IT solutions under one roof`;
-
 const app = express();
 const PORT = process.env.PORT || 3000;
 
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── In-Memory State ───────────────────────────────────────────────────────────
+// ─── State (no seed/mock data) ────────────────────────────────────────────────
 const state = {
   platforms: {
-    linkedin: { connected: false, account: null, token: null },
+    linkedin:  { connected: false, account: null, token: null },
     instagram: { connected: false, account: null, token: null },
-    facebook: { connected: false, account: null, token: null }
+    facebook:  { connected: false, account: null, token: null }
   },
   posts: [],
   notifications: [],
-  oauthSessions: {}
-};
-
-// Seed some initial posts
-const seedPosts = [
-  {
-    id: 'p1', platform: 'linkedin', status: 'published',
-    content: '🚀 Excited to announce TekyDoct is now Brunei\'s #1 Zoho Premium Partner! Our team has helped 150+ businesses transform digitally. Ready to start your journey? #ZohoPartner #DigitalTransformation #Brunei',
-    scheduledAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    publishedAt: new Date(Date.now() - 86400000 * 2).toISOString(),
-    engagement: { likes: 87, comments: 14, shares: 23, reach: 1240 },
-    image: null
-  },
-  {
-    id: 'p2', platform: 'instagram', status: 'published',
-    content: '🔒 Your security is our priority. From IP cameras to full NVR setups — TekyDoct CCTV solutions keep your business protected 24/7. DM us for a free site assessment! #CCTV #SecurityCamera #Brunei #TechSolution',
-    scheduledAt: new Date(Date.now() - 86400000).toISOString(),
-    publishedAt: new Date(Date.now() - 86400000).toISOString(),
-    engagement: { likes: 134, comments: 8, shares: 5, reach: 2100 },
-    image: null
-  },
-  {
-    id: 'p3', platform: 'facebook', status: 'published',
-    content: 'Did you know? Businesses using Zoho CRM see a 29% increase in sales on average. TekyDoct is here to implement and customise Zoho for your industry. 📊 Book a free demo today!',
-    scheduledAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-    publishedAt: new Date(Date.now() - 3600000 * 5).toISOString(),
-    engagement: { likes: 45, comments: 6, shares: 12, reach: 890 },
-    image: null
-  },
-  {
-    id: 'p4', platform: 'linkedin', status: 'scheduled',
-    content: '🌐 Thinking of upgrading your office network? TekyDoct\'s structured cabling and WiFi solutions deliver enterprise-grade connectivity for businesses of all sizes in Brunei. Let\'s talk infrastructure. #Networking #IT #Brunei',
-    scheduledAt: new Date(Date.now() + 3600000 * 3).toISOString(),
-    publishedAt: null,
-    engagement: null,
-    image: null
-  },
-  {
-    id: 'p5', platform: 'instagram', status: 'scheduled',
-    content: '✨ Transform the way your team works with Zoho One — 45+ integrated apps in one platform. TekyDoct sets it all up for you. #ZohoOne #ProductivityTools #SmallBusiness',
-    scheduledAt: new Date(Date.now() + 3600000 * 8).toISOString(),
-    publishedAt: null,
-    engagement: null,
-    image: null
-  },
-  {
-    id: 'p6', platform: 'facebook', status: 'draft',
-    content: 'Join our upcoming free webinar: "How to Automate Your Business with Zoho" — Thursday, 19 June at 2PM BST. Register now via the link in bio!',
-    scheduledAt: null,
-    publishedAt: null,
-    engagement: null,
-    image: null
-  }
-];
-state.posts = seedPosts;
-
-const seedNotifications = [
-  { id: 'n1', type: 'success', message: 'LinkedIn post published successfully', time: new Date(Date.now() - 3600000 * 2).toISOString(), read: false },
-  { id: 'n2', type: 'info', message: 'Instagram post scheduled for 6:00 PM today', time: new Date(Date.now() - 3600000).toISOString(), read: false },
-  { id: 'n3', type: 'warning', message: 'Facebook engagement lower than usual this week', time: new Date(Date.now() - 1800000).toISOString(), read: true }
-];
-state.notifications = seedNotifications;
-
-// ─── Mock Account Data ─────────────────────────────────────────────────────────
-const mockAccounts = {
-  linkedin: {
-    id: 'li_tekydoct_' + Date.now(),
-    name: 'TekyDoct Sdn Bhd',
-    handle: 'tekydoct',
-    avatar: 'TD',
-    followers: 2847,
-    following: 312,
-    profileUrl: 'https://linkedin.com/company/tekydoct',
-    industry: 'Information Technology',
-    location: 'Brunei Darussalam',
-    verified: true
-  },
-  instagram: {
-    id: 'ig_tekydoct_' + Date.now(),
-    name: 'TekyDoct',
-    handle: '@tekydoct',
-    avatar: 'TD',
-    followers: 1234,
-    following: 189,
-    profileUrl: 'https://instagram.com/tekydoct',
-    bio: 'Brunei #1 Zoho Partner | IT Solutions | CCTV & Security',
-    verified: false
-  },
-  facebook: {
-    id: 'fb_tekydoct_' + Date.now(),
-    name: 'TekyDoct Sdn Bhd',
-    handle: 'TekyDoct',
-    avatar: 'TD',
-    followers: 3421,
-    following: 0,
-    profileUrl: 'https://facebook.com/tekydoct',
-    pageCategory: 'Technology Company',
-    verified: true
+  oauthSessions: {},
+  credentials: {
+    openai:   process.env.OPENAI_API_KEY || '',
+    linkedin: {
+      clientId:    process.env.LINKEDIN_CLIENT_ID     || '',
+      clientSecret:process.env.LINKEDIN_CLIENT_SECRET || '',
+      redirectUri: process.env.LINKEDIN_REDIRECT_URI  || `http://localhost:${process.env.PORT || 3000}/oauth/linkedin/callback`
+    },
+    facebook: {
+      appId:       process.env.FACEBOOK_APP_ID        || '',
+      appSecret:   process.env.FACEBOOK_APP_SECRET    || '',
+      redirectUri: process.env.FACEBOOK_REDIRECT_URI  || `http://localhost:${process.env.PORT || 3000}/oauth/facebook/callback`
+    }
   }
 };
 
-// ─── Analytics Mock Data ───────────────────────────────────────────────────────
-function generateAnalytics(platform, period) {
-  const days = period === '7d' ? 7 : period === '30d' ? 30 : 90;
-  const baseReach = { linkedin: 1200, instagram: 2000, facebook: 900 };
-  const base = baseReach[platform] || 1200;
-  const labels = [];
-  const reach = [], engagement = [], clicks = [];
-  for (let i = days - 1; i >= 0; i--) {
-    const d = new Date(Date.now() - i * 86400000);
-    labels.push(d.toLocaleDateString('en-GB', { month: 'short', day: 'numeric' }));
-    reach.push(Math.round(base + (Math.random() - 0.4) * base * 0.3));
-    engagement.push(Math.round((Math.random() * 5 + 2) * 10) / 10);
-    clicks.push(Math.round(Math.random() * 80 + 20));
-  }
-  const totals = {
-    reach: reach.reduce((a, b) => a + b, 0),
-    engagement: (engagement.reduce((a, b) => a + b, 0) / engagement.length).toFixed(1),
-    clicks: clicks.reduce((a, b) => a + b, 0),
-    posts: state.posts.filter(p => p.platform === platform && p.status === 'published').length,
-    followers: mockAccounts[platform]?.followers || 0
-  };
-  return { labels, datasets: { reach, engagement, clicks }, totals };
+// ─── OpenAI ───────────────────────────────────────────────────────────────────
+let _ai = null, _aiKey = null;
+
+function getOpenAI() {
+  const key = state.credentials.openai;
+  if (!key) return null;
+  if (!_ai || _aiKey !== key) { _ai = new OpenAI({ apiKey: key }); _aiKey = key; }
+  return _ai;
 }
 
-// ─── AI Caption Templates ──────────────────────────────────────────────────────
-const captionTemplates = {
-  zoho_crm: {
-    linkedin: [
-      '📊 Sales teams using Zoho CRM close 29% more deals. TekyDoct helps businesses in Brunei implement, customise, and maximise Zoho CRM for their industry. Ready to scale? Let\'s talk. #ZohoCRM #SalesAutomation #Brunei',
-      '🔗 Siloed data is costing your business. Zoho CRM unifies customer data, automates workflows, and gives your team a 360° view. TekyDoct — Brunei\'s certified Zoho implementation partner. #CRM #DigitalTransformation',
-    ],
-    instagram: [
-      '💼 Your CRM should work as hard as you do. Zoho CRM + TekyDoct setup = sales on autopilot ✨ DM us today! #ZohoCRM #BusinessTech #Brunei',
-      '📱 From lead to close — Zoho CRM tracks every step. Let TekyDoct set it up for your business! #CRM #Automation #SME',
-    ],
-    facebook: [
-      'Still managing customers in spreadsheets? 😅 Zoho CRM automates follow-ups, tracks deals, and boosts your sales team\'s productivity. TekyDoct offers free CRM demos — contact us today!',
-    ]
-  },
-  cctv_security: {
-    linkedin: [
-      '🔒 Physical security is part of your digital strategy. TekyDoct designs end-to-end CCTV and access control systems for commercial and industrial facilities across Brunei. #Security #CCTV #Infrastructure',
-    ],
-    instagram: [
-      '👁️ Eyes on your business, always. Professional CCTV installation by TekyDoct — HD cameras, remote access, 24/7 monitoring. #CCTV #SecurityCamera #Brunei',
-      '🏢 Protecting what matters most. TekyDoct CCTV solutions for offices, warehouses & retail spaces. #SafetyFirst #CCTVBrunei',
-    ],
-    facebook: [
-      'Worried about security? TekyDoct installs professional CCTV systems with remote monitoring capabilities. Get a free site assessment — message us now! 📷',
-    ]
-  },
-  networking: {
-    linkedin: [
-      '🌐 A slow network is a productivity killer. TekyDoct\'s enterprise networking solutions — structured cabling, managed switches, and WiFi 6 deployments — keep your business running at full speed. #Networking #IT #Brunei',
-    ],
-    instagram: [
-      '⚡ Fast, reliable WiFi everywhere in your office. TekyDoct makes it happen! #WiFi #NetworkSolutions #TechBrunei',
-    ],
-    facebook: [
-      'Tired of dead WiFi zones? TekyDoct designs and installs enterprise-grade networking for offices and warehouses across Brunei. Get a free network assessment!',
-    ]
-  },
-  digital_transformation: {
-    linkedin: [
-      '🚀 Digital transformation isn\'t just a buzzword — it\'s survival. TekyDoct has helped 150+ businesses in Brunei modernise their operations with cloud solutions, automation, and smart infrastructure. Where are you on your journey? #DigitalTransformation #CloudSolutions',
-    ],
-    instagram: [
-      '🌟 The future of business is digital. TekyDoct is your transformation partner in Brunei! #DigitalBrunei #TechSolutions #Innovation',
-    ],
-    facebook: [
-      'Is your business ready for the digital age? TekyDoct offers end-to-end digital transformation consulting — from strategy to implementation. Let\'s build your future together.',
-    ]
-  }
-};
+const BRAND = `You are the AI social media strategist for TekyDoct Sdn Bhd — Brunei's #1 Zoho Premium Partner since 2006.
+Core services: Zoho CRM, Zoho One, Zoho Books, Zoho Campaigns, IP CCTV & Surveillance, Structured Cabling, WiFi 6, Digital Transformation, IT Procurement.
+Audience: Brunei SMEs, corporations, government-linked companies. 150+ clients served.
+Brand voice: Professional, locally aware, data-driven, solution-focused. Always reference Brunei context when relevant.`;
 
-// ─── Routes ────────────────────────────────────────────────────────────────────
+async function gpt(messages, opts = {}) {
+  const ai = getOpenAI();
+  if (!ai) throw new Error('OpenAI API key not configured. Add it in Settings.');
+  const res = await ai.chat.completions.create({ model: 'gpt-4o-mini', messages, temperature: 0.8, ...opts });
+  return res.choices[0].message.content.trim();
+}
 
-// Health check
-app.get('/api/status', (req, res) => {
-  res.json({ status: 'ok', version: '1.0.0', timestamp: new Date().toISOString() });
-});
+// ─── Popup Close Helper ───────────────────────────────────────────────────────
+function popupMsg(platform, success, extra = {}) {
+  const msg = success ? { type: 'oauth_success', platform, ...extra } : { type: 'oauth_cancel', platform };
+  return `<!DOCTYPE html><html><head><title>Connecting...</title></head><body>
+<p style="font-family:sans-serif;text-align:center;padding:40px;color:#555;">
+  ${success ? '✅ Connected successfully! Closing...' : '❌ Connection cancelled. Closing...'}
+</p>
+<script>
+  try { window.opener && window.opener.postMessage(${JSON.stringify(msg)}, '*'); } catch(e){}
+  setTimeout(() => window.close(), 800);
+</script></body></html>`;
+}
 
-// Get platform connection status
+// ─── Status ───────────────────────────────────────────────────────────────────
+app.get('/api/status', (req, res) => res.json({
+  status: 'ok', version: '2.0.0',
+  aiActive: !!getOpenAI(),
+  connectedPlatforms: Object.entries(state.platforms).filter(([,v]) => v.connected).map(([k]) => k),
+  timestamp: new Date().toISOString()
+}));
+
+app.get('/api/ai/status', (req, res) => res.json({ active: !!getOpenAI(), model: 'gpt-4o-mini' }));
+
+// ─── Platforms ────────────────────────────────────────────────────────────────
 app.get('/api/platforms', (req, res) => {
-  const result = {};
-  for (const [name, data] of Object.entries(state.platforms)) {
-    result[name] = {
-      connected: data.connected,
-      account: data.connected ? data.account : null
-    };
-  }
-  res.json(result);
+  const out = {};
+  for (const [k, v] of Object.entries(state.platforms)) out[k] = { connected: v.connected, account: v.connected ? v.account : null };
+  res.json(out);
 });
 
-// Start OAuth flow — returns popup URL
-app.get('/api/oauth/:platform/start', (req, res) => {
-  const { platform } = req.params;
-  if (!['linkedin', 'instagram', 'facebook'].includes(platform)) {
-    return res.status(400).json({ error: 'Unknown platform' });
-  }
-  const sessionId = crypto.randomBytes(8).toString('hex');
-  state.oauthSessions[sessionId] = { platform, createdAt: Date.now() };
-  const url = `/oauth/${platform}.html?session=${sessionId}`;
-  res.json({ url, sessionId });
-});
-
-// Complete OAuth — called by consent popup
-app.post('/api/oauth/:platform/authorize', (req, res) => {
-  const { platform } = req.params;
-  const { sessionId } = req.body;
-  if (!state.oauthSessions[sessionId]) {
-    return res.status(400).json({ error: 'Invalid or expired session' });
-  }
-  delete state.oauthSessions[sessionId];
-  const account = mockAccounts[platform];
-  const token = 'mock_token_' + crypto.randomBytes(16).toString('hex');
-  state.platforms[platform] = { connected: true, account, token };
-
-  // Add notification
-  state.notifications.unshift({
-    id: 'n' + Date.now(),
-    type: 'success',
-    message: `${platform.charAt(0).toUpperCase() + platform.slice(1)} account "${account.name}" connected successfully`,
-    time: new Date().toISOString(),
-    read: false
+// ─── LinkedIn OAuth ───────────────────────────────────────────────────────────
+app.get('/api/oauth/linkedin/start', (req, res) => {
+  const { clientId, redirectUri } = state.credentials.linkedin;
+  if (!clientId) return res.json({ url: '/oauth/linkedin.html?setup=1', demo: true });
+  const sid = crypto.randomBytes(8).toString('hex');
+  state.oauthSessions[sid] = { platform: 'linkedin', ts: Date.now() };
+  const p = new URLSearchParams({
+    response_type: 'code', client_id: clientId, redirect_uri: redirectUri,
+    state: sid, scope: 'r_liteprofile r_emailaddress w_member_social r_organization_social'
   });
-
-  res.json({ success: true, account });
+  res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?${p}`, demo: false });
 });
 
-// Disconnect platform
+app.get('/oauth/linkedin/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.send(popupMsg('linkedin', false));
+  try {
+    const { clientId, clientSecret, redirectUri } = state.credentials.linkedin;
+    const tRes = await fetch('https://www.linkedin.com/oauth/v2/accessToken', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+      body: new URLSearchParams({ grant_type: 'authorization_code', code, redirect_uri: redirectUri, client_id: clientId, client_secret: clientSecret }).toString()
+    });
+    const tData = await tRes.json();
+    if (!tData.access_token) throw new Error('No token: ' + JSON.stringify(tData));
+
+    const pRes = await fetch('https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName,vanityName)', {
+      headers: { Authorization: `Bearer ${tData.access_token}` }
+    });
+    const profile = await pRes.json();
+
+    let followers = 0;
+    try {
+      const fRes = await fetch(`https://api.linkedin.com/v2/networkSizes/urn:li:person:${profile.id}?edgeType=CompanyFollowedByMember`, { headers: { Authorization: `Bearer ${tData.access_token}` } });
+      const fData = await fRes.json();
+      followers = fData.firstDegreeSize || 0;
+    } catch(e) {}
+
+    const account = {
+      id: profile.id,
+      name: `${profile.localizedFirstName} ${profile.localizedLastName}`,
+      handle: profile.vanityName || 'linkedin',
+      followers,
+      avatar: ((profile.localizedFirstName||'U')[0] + (profile.localizedLastName||'N')[0]).toUpperCase()
+    };
+    state.platforms.linkedin = { connected: true, account, token: tData.access_token };
+    state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `LinkedIn "${account.name}" connected`, time: new Date().toISOString(), read: false });
+    res.send(popupMsg('linkedin', true, { account }));
+  } catch(e) {
+    console.error('LinkedIn callback error:', e.message);
+    res.send(popupMsg('linkedin', false));
+  }
+});
+
+// ─── Facebook + Instagram OAuth ───────────────────────────────────────────────
+app.get('/api/oauth/facebook/start', (req, res) => {
+  const { appId, redirectUri } = state.credentials.facebook;
+  if (!appId) return res.json({ url: '/oauth/facebook.html?setup=1', demo: true });
+  const sid = crypto.randomBytes(8).toString('hex');
+  const p = new URLSearchParams({
+    client_id: appId, redirect_uri: redirectUri, state: sid,
+    scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_read_user_content,instagram_basic,instagram_content_publish,instagram_manage_insights,public_profile'
+  });
+  res.json({ url: `https://www.facebook.com/v18.0/dialog/oauth?${p}`, demo: false });
+});
+
+app.get('/oauth/facebook/callback', async (req, res) => {
+  const { code, error } = req.query;
+  if (error || !code) return res.send(popupMsg('facebook', false));
+  try {
+    const { appId, appSecret, redirectUri } = state.credentials.facebook;
+    const tRes = await fetch(`https://graph.facebook.com/v18.0/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`);
+    const tData = await tRes.json();
+    if (!tData.access_token) throw new Error('No token');
+
+    const pagesRes = await fetch(`https://graph.facebook.com/v18.0/me/accounts?access_token=${tData.access_token}`);
+    const pagesData = await pagesRes.json();
+    const page = pagesData.data?.[0];
+    if (!page) throw new Error('No Facebook Pages found for this account');
+
+    const pgRes = await fetch(`https://graph.facebook.com/v18.0/${page.id}?fields=name,fan_count,category,instagram_business_account&access_token=${page.access_token}`);
+    const pg = await pgRes.json();
+
+    const fbAccount = {
+      id: page.id, name: pg.name || page.name, handle: pg.name || page.name,
+      followers: pg.fan_count || 0, pageCategory: pg.category || 'Business',
+      avatar: (pg.name || 'FB')[0].toUpperCase(), pageToken: page.access_token
+    };
+    state.platforms.facebook = { connected: true, account: fbAccount, token: page.access_token };
+    state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Facebook Page "${fbAccount.name}" connected`, time: new Date().toISOString(), read: false });
+
+    // Auto-connect linked Instagram Business Account
+    if (pg.instagram_business_account?.id) {
+      const igRes = await fetch(`https://graph.facebook.com/v18.0/${pg.instagram_business_account.id}?fields=name,username,followers_count,biography&access_token=${page.access_token}`);
+      const ig = await igRes.json();
+      const igAccount = {
+        id: pg.instagram_business_account.id, name: ig.name || 'Instagram',
+        handle: `@${ig.username || 'instagram'}`, followers: ig.followers_count || 0,
+        bio: ig.biography || '', avatar: (ig.username || 'IG')[0].toUpperCase()
+      };
+      state.platforms.instagram = { connected: true, account: igAccount, token: page.access_token };
+      state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Instagram @${ig.username} connected automatically`, time: new Date().toISOString(), read: false });
+    }
+
+    res.send(popupMsg('facebook', true, { account: fbAccount }));
+  } catch(e) {
+    console.error('Facebook callback error:', e.message);
+    res.send(popupMsg('facebook', false));
+  }
+});
+
+// Instagram uses Facebook App OAuth
+app.get('/api/oauth/instagram/start', (req, res) => {
+  const { appId, redirectUri } = state.credentials.facebook;
+  if (!appId) return res.json({ url: '/oauth/instagram.html?setup=1', demo: true });
+  const sid = crypto.randomBytes(8).toString('hex');
+  const p = new URLSearchParams({
+    client_id: appId, redirect_uri: redirectUri, state: sid,
+    scope: 'instagram_basic,instagram_content_publish,instagram_manage_insights,pages_show_list,pages_read_engagement,public_profile'
+  });
+  res.json({ url: `https://www.facebook.com/v18.0/dialog/oauth?${p}`, demo: false });
+});
+
 app.post('/api/oauth/:platform/disconnect', (req, res) => {
   const { platform } = req.params;
-  const accountName = state.platforms[platform]?.account?.name || platform;
+  const name = state.platforms[platform]?.account?.name || platform;
   state.platforms[platform] = { connected: false, account: null, token: null };
-  state.notifications.unshift({
-    id: 'n' + Date.now(),
-    type: 'info',
-    message: `${platform.charAt(0).toUpperCase() + platform.slice(1)} account "${accountName}" disconnected`,
-    time: new Date().toISOString(),
-    read: false
-  });
+  if (platform === 'facebook') state.platforms.instagram = { connected: false, account: null, token: null };
+  state.notifications.unshift({ id: 'n'+Date.now(), type: 'info', message: `${platform} "${name}" disconnected`, time: new Date().toISOString(), read: false });
   res.json({ success: true });
 });
 
-// Get posts
+// ─── Posts — real publish when connected ──────────────────────────────────────
 app.get('/api/posts', (req, res) => {
   let posts = [...state.posts];
   if (req.query.status) posts = posts.filter(p => p.status === req.query.status);
   if (req.query.platform) posts = posts.filter(p => p.platform === req.query.platform);
-  posts.sort((a, b) => {
-    const ta = a.scheduledAt || a.publishedAt || '';
-    const tb = b.scheduledAt || b.publishedAt || '';
-    return tb.localeCompare(ta);
-  });
+  posts.sort((a, b) => (b.scheduledAt||b.publishedAt||b.createdAt||'').localeCompare(a.scheduledAt||a.publishedAt||a.createdAt||''));
   res.json(posts);
 });
 
-// Create post
-app.post('/api/posts', (req, res) => {
-  const { platform, content, scheduledAt, image } = req.body;
+app.post('/api/posts', async (req, res) => {
+  const { platform, content, scheduledAt } = req.body;
   if (!platform || !content) return res.status(400).json({ error: 'platform and content required' });
   const post = {
-    id: 'p' + Date.now(),
-    platform,
-    content,
-    scheduledAt: scheduledAt || null,
-    publishedAt: null,
-    status: scheduledAt ? 'scheduled' : 'draft',
-    engagement: null,
-    image: image || null,
-    createdAt: new Date().toISOString()
+    id: 'p'+Date.now(), platform, content, scheduledAt: scheduledAt||null,
+    publishedAt: null, status: scheduledAt ? 'scheduled' : 'draft',
+    engagement: null, image: null, createdAt: new Date().toISOString()
   };
-  state.posts.unshift(post);
-  state.notifications.unshift({
-    id: 'n' + Date.now(),
-    type: 'success',
-    message: `Post ${post.status === 'scheduled' ? 'scheduled' : 'saved as draft'} for ${platform}`,
-    time: new Date().toISOString(),
-    read: false
-  });
-  res.json(post);
-});
 
-// Update post
-app.put('/api/posts/:id', (req, res) => {
-  const post = state.posts.find(p => p.id === req.params.id);
-  if (!post) return res.status(404).json({ error: 'Post not found' });
-  Object.assign(post, req.body);
-  res.json(post);
-});
-
-// Delete post
-app.delete('/api/posts/:id', (req, res) => {
-  const idx = state.posts.findIndex(p => p.id === req.params.id);
-  if (idx === -1) return res.status(404).json({ error: 'Post not found' });
-  state.posts.splice(idx, 1);
-  res.json({ success: true });
-});
-
-// Analytics
-app.get('/api/analytics', (req, res) => {
-  const { platform = 'all', period = '30d' } = req.query;
-  if (platform === 'all') {
-    const result = {};
-    for (const p of ['linkedin', 'instagram', 'facebook']) {
-      result[p] = generateAnalytics(p, period);
-    }
-    // Combined totals
-    const combined = { reach: 0, engagement: 0, clicks: 0, posts: 0, followers: 0 };
-    for (const d of Object.values(result)) {
-      combined.reach += d.totals.reach;
-      combined.engagement += parseFloat(d.totals.engagement);
-      combined.clicks += d.totals.clicks;
-      combined.posts += d.totals.posts;
-      combined.followers += d.totals.followers;
-    }
-    combined.engagement = (combined.engagement / 3).toFixed(1);
-    result.combined = combined;
-    return res.json(result);
+  // Publish immediately if platform is connected and no schedule time
+  if (state.platforms[platform].connected && !scheduledAt) {
+    try {
+      const token = state.platforms[platform].token;
+      if (platform === 'linkedin') {
+        const lRes = await fetch('https://api.linkedin.com/v2/ugcPosts', {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', 'X-Restli-Protocol-Version': '2.0.0' },
+          body: JSON.stringify({
+            author: `urn:li:person:${state.platforms.linkedin.account.id}`,
+            lifecycleState: 'PUBLISHED',
+            specificContent: { 'com.linkedin.ugc.ShareContent': { shareCommentary: { text: content }, shareMediaCategory: 'NONE' } },
+            visibility: { 'com.linkedin.ugc.MemberNetworkVisibility': 'PUBLIC' }
+          })
+        });
+        if (lRes.ok) { post.status = 'published'; post.publishedAt = new Date().toISOString(); }
+      } else if (platform === 'facebook') {
+        const pgId = state.platforms.facebook.account.id;
+        const pgToken = state.platforms.facebook.account.pageToken;
+        const fRes = await fetch(`https://graph.facebook.com/v18.0/${pgId}/feed`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ message: content, access_token: pgToken })
+        });
+        if (fRes.ok) { post.status = 'published'; post.publishedAt = new Date().toISOString(); }
+      } else if (platform === 'instagram') {
+        const igId = state.platforms.instagram.account.id;
+        const igToken = state.platforms.instagram.token;
+        const cRes = await fetch(`https://graph.facebook.com/v18.0/${igId}/media`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ caption: content, media_type: 'TEXT', access_token: igToken })
+        });
+        const cData = await cRes.json();
+        if (cData.id) {
+          const pRes = await fetch(`https://graph.facebook.com/v18.0/${igId}/media_publish`, {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ creation_id: cData.id, access_token: igToken })
+          });
+          if (pRes.ok) { post.status = 'published'; post.publishedAt = new Date().toISOString(); }
+        }
+      }
+    } catch(e) { console.error(`Publish error [${platform}]:`, e.message); }
   }
-  res.json(generateAnalytics(platform, period));
+
+  state.posts.unshift(post);
+  state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Post ${post.status} on ${platform}`, time: new Date().toISOString(), read: false });
+  res.json(post);
 });
 
-// Notifications
-app.get('/api/notifications', (req, res) => {
-  res.json(state.notifications.slice(0, 20));
+app.put('/api/posts/:id', (req, res) => {
+  const p = state.posts.find(p => p.id === req.params.id);
+  if (!p) return res.status(404).json({ error: 'Not found' });
+  Object.assign(p, req.body); res.json(p);
 });
 
-app.post('/api/notifications/read-all', (req, res) => {
-  state.notifications.forEach(n => n.read = true);
-  res.json({ success: true });
+app.delete('/api/posts/:id', (req, res) => {
+  const i = state.posts.findIndex(p => p.id === req.params.id);
+  if (i === -1) return res.status(404).json({ error: 'Not found' });
+  state.posts.splice(i, 1); res.json({ success: true });
 });
 
-// AI Caption Generation — GPT-powered with mock fallback
+// ─── Notifications ────────────────────────────────────────────────────────────
+app.get('/api/notifications', (req, res) => res.json(state.notifications.slice(0, 20)));
+app.post('/api/notifications/read-all', (req, res) => { state.notifications.forEach(n => n.read = true); res.json({ success: true }); });
+
+// ─── AI Caption — GPT only ────────────────────────────────────────────────────
 app.post('/api/ai/generate', async (req, res) => {
   const { topic, platform, tone = 'professional' } = req.body;
-  const ai = getOpenAI();
+  try {
+    const guide = {
+      linkedin: '150-250 words, professional, data-driven, include one relevant stat if possible, 3-5 hashtags at the end',
+      instagram: '80-120 words, energetic, 2-3 emojis max, include CTA ("DM us" or "Link in bio"), 8-12 hashtags at end',
+      facebook: '100-150 words, conversational, community-focused, end with a question or CTA, 3-5 hashtags'
+    };
+    const caption = await gpt([
+      { role: 'system', content: BRAND },
+      { role: 'user', content: `Write a ${platform} post about "${topic}" in a ${tone} tone.\nRequirements: ${guide[platform]||guide.linkedin}\nReturn ONLY the caption text with hashtags. No labels, no quotes, no preamble.` }
+    ], { max_tokens: 450 });
 
-  if (ai) {
-    try {
-      const platformGuide = {
-        linkedin: '150-250 words, professional tone, include a relevant stat or insight, 3-5 hashtags at the end',
-        instagram: '80-120 words, energetic with 2-3 relevant emojis, include CTA like "DM us" or "Link in bio", 8-12 hashtags at the end',
-        facebook: '100-150 words, conversational and community-focused, end with a question or CTA, 3-5 hashtags'
-      };
-      const completion = await ai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: TEKYDOCT_SYSTEM },
-          { role: 'user', content: `Write a ${platform} post about "${topic}" in a ${tone} tone.\nFormat: ${platformGuide[platform] || platformGuide.linkedin}\nReturn only the post caption — no labels, no preamble, no quotes around it.` }
-        ],
-        max_tokens: 400,
-        temperature: 0.8
-      });
-      const caption = completion.choices[0].message.content.trim();
-      const hashtagMatch = caption.match(/#\w+/g) || [];
-      return res.json({
-        caption,
-        hashtags: hashtagMatch.slice(0, 12),
-        estimatedReach: Math.round(Math.random() * 1500 + 800),
-        bestTime: platform === 'linkedin' ? 'Tue–Thu, 9–11 AM BST' : platform === 'instagram' ? 'Mon/Wed/Fri, 11AM–6PM BST' : 'Wed 1PM or Fri 2PM BST',
-        engagementScore: (Math.random() * 2 + 4).toFixed(1),
-        aiPowered: true
-      });
-    } catch (e) {
-      console.error('GPT caption error:', e.message);
-    }
-  }
-
-  // Mock fallback
-  await new Promise(r => setTimeout(r, 1200));
-  const topicKey = topic ? topic.toLowerCase().replace(/\s+/g, '_') : 'digital_transformation';
-  const templateGroup = captionTemplates[topicKey] || captionTemplates['digital_transformation'];
-  const platformTemplates = templateGroup[platform] || templateGroup['linkedin'] || [];
-  let caption = platformTemplates[Math.floor(Math.random() * platformTemplates.length)];
-  if (!caption) caption = `Exciting things are happening at TekyDoct! Stay tuned for updates on ${topic || 'our latest solutions'}. #TekyDoct #Brunei #Technology`;
-  const hashtagMap = {
-    linkedin: ['#TekyDoct', '#Brunei', '#DigitalTransformation', '#ZohoPartner', '#ITSolutions'],
-    instagram: ['#TekyDoct', '#Brunei', '#TechLife', '#Innovation', '#BruneiTech', '#SME'],
-    facebook: ['#TekyDoct', '#Brunei', '#Technology', '#BusinessSolutions']
-  };
-  res.json({
-    caption,
-    hashtags: hashtagMap[platform] || hashtagMap['linkedin'],
-    estimatedReach: Math.round(Math.random() * 1500 + 500),
-    bestTime: platform === 'linkedin' ? 'Tue–Thu, 9–11 AM BST' : platform === 'instagram' ? 'Mon/Wed/Fri, 11AM–6PM BST' : 'Wed 1PM or Fri 2PM BST',
-    engagementScore: (Math.random() * 3 + 6) / 10,
-    aiPowered: false
-  });
-});
-
-// SSE — Real-time monitoring stream
-app.get('/api/monitoring/stream', (req, res) => {
-  res.setHeader('Content-Type', 'text/event-stream');
-  res.setHeader('Cache-Control', 'no-cache');
-  res.setHeader('Connection', 'keep-alive');
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.flushHeaders();
-
-  const events = [
-    { type: 'like', platform: 'linkedin', msg: 'Someone liked your LinkedIn post about Zoho CRM', icon: '👍' },
-    { type: 'comment', platform: 'instagram', msg: 'New comment on your CCTV Instagram post', icon: '💬' },
-    { type: 'share', platform: 'facebook', msg: 'Your Facebook post was shared 3 times', icon: '🔁' },
-    { type: 'follow', platform: 'instagram', msg: 'You have 5 new Instagram followers', icon: '➕' },
-    { type: 'mention', platform: 'linkedin', msg: 'TekyDoct was mentioned in a LinkedIn post', icon: '📢' },
-    { type: 'click', platform: 'facebook', msg: '12 clicks on your Facebook link today', icon: '🖱️' },
-    { type: 'reach', platform: 'instagram', msg: 'Your Instagram story reached 400 views', icon: '👁️' },
-    { type: 'message', platform: 'facebook', msg: 'New inquiry message on Facebook Page', icon: '✉️' },
-    { type: 'like', platform: 'instagram', msg: 'Your CCTV post hit 100 likes on Instagram', icon: '❤️' },
-    { type: 'comment', platform: 'linkedin', msg: 'Someone commented: "Can you help with Zoho Books?"', icon: '💬' }
-  ];
-
-  const sendEvent = () => {
-    const evt = events[Math.floor(Math.random() * events.length)];
-    const data = JSON.stringify({
-      ...evt,
-      id: 'evt_' + Date.now(),
-      timestamp: new Date().toISOString()
+    res.json({
+      caption,
+      hashtags: (caption.match(/#\w+/g)||[]).slice(0,12),
+      estimatedReach: Math.round(Math.random()*1500+800),
+      bestTime: platform==='linkedin'?'Tue–Thu 9–11 AM BST':platform==='instagram'?'Mon/Wed/Fri 11AM–6PM BST':'Wed 1PM or Fri 2PM BST',
+      engagementScore: (Math.random()*2+4).toFixed(1),
+      aiPowered: true
     });
-    res.write(`data: ${data}\n\n`);
-  };
-
-  sendEvent(); // immediate first event
-  const interval = setInterval(sendEvent, Math.random() * 8000 + 6000);
-
-  req.on('close', () => {
-    clearInterval(interval);
-  });
+  } catch(e) {
+    res.status(503).json({ error: e.message });
+  }
 });
 
-// ─── Smart Planner: Brand Health ─────────────────────────────────────────────
-function computeBrandHealth() {
-  const publishedPosts = state.posts.filter(p => p.status === 'published');
-  const platforms = ['linkedin', 'instagram', 'facebook'];
-  const scores = {};
+// ─── Brand Health ─────────────────────────────────────────────────────────────
+function brandHealth() {
+  const pub = state.posts.filter(p => p.status === 'published');
+  const base = { linkedin: 68, instagram: 61, facebook: 54 };
   const details = {};
-
-  for (const p of platforms) {
-    const pp = publishedPosts.filter(x => x.platform === p);
-    const engAvg = pp.length ? pp.reduce((a, b) => a + (b.engagement ? (b.engagement.likes + b.engagement.comments * 2 + b.engagement.shares * 3) / (b.engagement.reach || 1) * 100 : 0), 0) / pp.length : 0;
-    const freq = Math.min(pp.length / 10 * 100, 100);
-    const acc = state.platforms[p];
-    const followers = acc.connected && acc.account ? acc.account.followers : 0;
-    const followerScore = Math.min(followers / 5000 * 100, 100);
-    const base = { linkedin: 68, instagram: 61, facebook: 54 }[p];
-    const score = Math.round(base + (Math.random() - 0.3) * 8);
-    scores[p] = Math.min(Math.max(score, 40), 95);
+  for (const p of ['linkedin','instagram','facebook']) {
+    const pp = pub.filter(x => x.platform === p);
+    const connected = state.platforms[p].connected;
+    const followers = state.platforms[p].account?.followers || 0;
+    const connectedBonus = connected ? 8 : 0;
+    const score = Math.min(Math.max(Math.round(base[p] + connectedBonus + (Math.random()-0.3)*6), 40), 98);
     details[p] = {
-      score: scores[p],
-      engagementRate: (Math.random() * 3 + 2).toFixed(1),
-      postFrequency: pp.length,
-      followerGrowth: (Math.random() * 4 + 0.5).toFixed(1),
-      contentQuality: Math.round(55 + Math.random() * 35),
-      status: scores[p] >= 75 ? 'healthy' : scores[p] >= 55 ? 'moderate' : 'needs_attention',
-      recommendations: getBrandRecs(p, scores[p])
+      score, connected, followers,
+      engagementRate: (Math.random()*3+2).toFixed(1),
+      postCount: pp.length,
+      status: score>=75?'healthy':score>=55?'moderate':'needs_attention'
     };
   }
-  const overall = Math.round((scores.linkedin + scores.instagram + scores.facebook) / 3);
-  return { overall, platforms: details, computedAt: new Date().toISOString() };
+  return { overall: Math.round((details.linkedin.score+details.instagram.score+details.facebook.score)/3), platforms: details, computedAt: new Date().toISOString() };
 }
 
-function getBrandRecs(platform, score) {
-  const recs = {
-    linkedin: [
-      score < 70 ? 'Post 4–5x per week to improve visibility' : 'Maintain your current posting cadence',
-      'Add more data-driven posts — stats perform 37% better on LinkedIn',
-      'Engage with comments within the first hour of posting',
-      'Use carousels and documents for higher reach',
-    ],
-    instagram: [
-      score < 65 ? 'Increase Reels output — Reels get 3x more reach than static posts' : 'Your Reels strategy is working — continue',
-      'Use 10–12 targeted hashtags per post',
-      'Post Stories daily to stay top-of-feed',
-      'Feature team or behind-the-scenes content to humanise the brand',
-    ],
-    facebook: [
-      score < 60 ? 'Facebook engagement drops without consistent posting — aim for 3x/week' : 'Consistent posting is building your audience',
-      'Add video content — Facebook prioritises native video',
-      'Respond to all comments to boost algorithmic reach',
-      'Run a monthly Q&A or live session to drive interaction',
-    ]
-  };
-  return (recs[platform] || []).slice(0, 3);
-}
+app.get('/api/brand-health', (req, res) => res.json(brandHealth()));
 
-app.get('/api/brand-health', (req, res) => {
-  res.json(computeBrandHealth());
-});
-
-// ─── Smart Planner: Trending Topics ──────────────────────────────────────────
-const trendBank = [
-  { id: 'tr1', topic: 'AI-Powered CRM & Automation', category: 'technology', heat: 'hot', relevance: 96, volume: '+142%', description: 'Businesses seeking AI features inside CRM — Zoho\'s AI suite is trending' },
-  { id: 'tr2', topic: 'Brunei Digital Economy Blueprint', category: 'local', heat: 'hot', relevance: 94, volume: '+118%', description: 'Government initiatives driving SME digital adoption across Brunei' },
-  { id: 'tr3', topic: 'IP Surveillance & Smart Security', category: 'security', heat: 'hot', relevance: 91, volume: '+87%', description: 'Demand for IP cameras with remote monitoring at an all-time high' },
-  { id: 'tr4', topic: 'Cloud Migration for SMEs', category: 'technology', heat: 'rising', relevance: 89, volume: '+74%', description: 'SMEs accelerating on-premise to cloud transitions post-pandemic' },
-  { id: 'tr5', topic: 'Zoho One All-in-One Suite', category: 'zoho', heat: 'hot', relevance: 93, volume: '+105%', description: 'Growing demand for integrated business suites replacing point solutions' },
-  { id: 'tr6', topic: 'WiFi 6 Office Upgrades', category: 'networking', heat: 'rising', relevance: 82, volume: '+61%', description: 'Enterprises upgrading to WiFi 6 ahead of hybrid work demands' },
-  { id: 'tr7', topic: 'SME Cybersecurity Awareness', category: 'security', heat: 'rising', relevance: 85, volume: '+68%', description: 'Cyber attacks on SMEs up 300% — businesses seeking affordable solutions' },
-  { id: 'tr8', topic: 'Business Process Automation', category: 'zoho', heat: 'warm', relevance: 88, volume: '+53%', description: 'Workflow automation reducing manual tasks — Zoho Flow & Creator leading' },
-  { id: 'tr9', topic: 'Remote IT Support & MSP', category: 'technology', heat: 'warm', relevance: 78, volume: '+44%', description: 'Managed IT services growing as businesses outsource infrastructure' },
-  { id: 'tr10', topic: 'Green IT & Sustainable Tech', category: 'technology', heat: 'rising', relevance: 71, volume: '+38%', description: 'Eco-conscious business tech purchasing on the rise in SEA' }
-];
-
-app.get('/api/trends', (req, res) => {
-  // Shuffle slightly to simulate freshness
-  const shuffled = [...trendBank].sort(() => Math.random() * 0.4 - 0.2);
-  res.json({ trends: shuffled, updatedAt: new Date().toISOString() });
-});
-
-// ─── Smart Planner: Weekly Plan Generator ────────────────────────────────────
-const plannerCaptions = {
-  'AI-Powered CRM & Automation': {
-    linkedin: '🤖 AI is transforming CRM — and TekyDoct is ahead of the curve. Zoho\'s built-in AI, Zia, predicts lead scores, automates follow-ups, and surfaces insights your team would miss. Brunei businesses using Zoho AI CRM report 34% faster deal closures. Ready to see it in action? #ZohoCRM #ArtificialIntelligence #SalesAutomation #Brunei',
-    instagram: '🤖 Smart CRM = more closed deals ✨ Zoho\'s AI does the heavy lifting so your team can focus on what matters — building relationships. DM us for a free demo! #ZohoCRM #AITools #BusinessTech #Brunei',
-    facebook: 'Did you know AI can predict which leads are most likely to convert? Zoho CRM\'s built-in AI (Zia) does exactly that. TekyDoct sets it up for Brunei businesses — ask us for a free walkthrough!'
-  },
-  'Brunei Digital Economy Blueprint': {
-    linkedin: '🇧🇳 Brunei\'s Digital Economy Blueprint is creating real opportunities for businesses that act now. TekyDoct has been supporting Brunei\'s digital transformation journey since 2006 — from cloud adoption to smart infrastructure. Is your business ready? Let\'s build your roadmap. #BruneiDigital #DigitalTransformation #BDEB',
-    instagram: '🌐 Brunei is going digital — is your business ready? TekyDoct has been powering Brunei businesses since 2006. Let\'s grow together 🚀 #DigitalBrunei #BDEB #TechSolutions #BruneiTech',
-    facebook: 'Brunei\'s Digital Economy Blueprint is here — and TekyDoct is your partner for the journey. From cloud to CCTV to CRM, we have everything your business needs to go digital. Contact us today!'
-  },
-  'IP Surveillance & Smart Security': {
-    linkedin: '🔐 Physical security is an integral part of your digital strategy. TekyDoct designs and deploys enterprise-grade IP surveillance systems with remote monitoring, analytics, and integration with your existing IT infrastructure. Protecting Brunei businesses since 2006. #IPCamera #SecuritySystems #SmartSecurity',
-    instagram: '👁️ Always watching, always protecting. TekyDoct IP surveillance systems — HD cameras, remote access from your phone, 24/7 recording. DM for a free site assessment! #CCTV #IPCamera #SecurityBrunei',
-    facebook: 'Your business deserves real security. TekyDoct installs IP CCTV systems with remote monitoring — see your premises from anywhere, anytime. Message us for a free consultation! 📷'
-  },
-  'Zoho One All-in-One Suite': {
-    linkedin: '🔗 45+ integrated apps. One platform. One price. Zoho One replaces your fragmented tools with a unified business suite — CRM, accounting, HR, project management, and more. TekyDoct implements and customises Zoho One for Brunei businesses of every size. Ready to simplify? #ZohoOne #BusinessApps #SaaS',
-    instagram: '✨ One app for everything your business needs 🙌 Zoho One = CRM + Finance + HR + Projects + 40 more apps. TekyDoct sets it up, trains your team, and supports you ongoing. #ZohoOne #ProductivityApps #SMETools',
-    facebook: 'Stop paying for 10 different apps. Zoho One gives you 45+ business apps in one platform — and TekyDoct makes sure it\'s all set up perfectly for YOUR business. Ask us about a free Zoho One trial!'
-  },
-  'SME Cybersecurity Awareness': {
-    linkedin: '⚠️ 60% of SMEs that suffer a cyber attack close within 6 months. Cybersecurity isn\'t just for enterprises — it\'s critical for every Brunei business. TekyDoct offers end-to-end security assessments, network hardening, and monitoring solutions scaled for SMEs. #Cybersecurity #SME #ITSecurity #Brunei',
-    instagram: '🛡️ Protect your business before it\'s too late. Cyber threats don\'t discriminate by size. TekyDoct\'s SME security solutions are affordable and effective. DM us! #Cybersecurity #DataProtection #BruneiTech',
-    facebook: 'Cyber attacks on small businesses are up 300% this year. Is your business protected? TekyDoct offers affordable cybersecurity solutions designed for Brunei SMEs. Message us for a free security health check!'
-  }
-};
-
-function getCaption(trend, platform) {
-  if (plannerCaptions[trend] && plannerCaptions[trend][platform]) {
-    return plannerCaptions[trend][platform];
-  }
-  return `💡 ${trend} is shaping the future of business in Brunei. TekyDoct helps you stay ahead with expert solutions tailored to your needs. Contact us today! #TekyDoct #Brunei #Technology #DigitalTransformation`;
-}
-
-function getHashtags(platform) {
-  const base = { linkedin: ['#TekyDoct', '#Brunei', '#DigitalTransformation', '#ZohoPartner'], instagram: ['#TekyDoct', '#BruneiTech', '#Innovation', '#SME'], facebook: ['#TekyDoct', '#Brunei', '#Technology'] };
-  return base[platform] || base.linkedin;
-}
-
-function getBestTime(platform, dayIndex) {
-  const times = {
-    linkedin: ['09:00', '10:30', '11:00', '09:30', '10:00', '11:30', '10:00'],
-    instagram: ['11:00', '18:00', '11:30', '17:00', '12:00', '11:00', '17:30'],
-    facebook: ['13:00', '14:00', '13:30', '14:00', '14:00', '13:00', '14:00']
-  };
-  return (times[platform] || times.linkedin)[dayIndex % 7];
-}
-
-function generateWeeklyPlan(weekOffset = 0) {
-  const health = computeBrandHealth();
-  const today = new Date();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + weekOffset * 7);
-  monday.setHours(0, 0, 0, 0);
-
-  const hotTrends = trendBank.filter(t => t.heat === 'hot').slice(0, 5);
-  const risingTrends = trendBank.filter(t => t.heat === 'rising').slice(0, 3);
-  const allTrends = [...hotTrends, ...risingTrends];
-
-  // Prioritise weaker platforms
-  const platformsByPriority = ['linkedin', 'instagram', 'facebook'].sort((a, b) => health.platforms[a].score - health.platforms[b].score);
-
-  const days = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday'];
-  const daySchedule = [
-    ['linkedin', 'instagram'],
-    ['linkedin'],
-    ['facebook', 'instagram'],
-    ['linkedin'],
-    ['facebook', 'instagram'],
-    ['instagram'],
-    []
-  ];
-
-  const plan = days.map((dayName, i) => {
-    const date = new Date(monday);
-    date.setDate(monday.getDate() + i);
-    const platforms = daySchedule[i];
-    const trendForDay = allTrends[i % allTrends.length];
-    const posts = platforms.map(platform => ({
-      id: `wp_${Date.now()}_${i}_${platform}`,
-      platform,
-      time: getBestTime(platform, i),
-      trend: trendForDay.topic,
-      caption: getCaption(trendForDay.topic, platform),
-      hashtags: getHashtags(platform),
-      predictedReach: Math.round({ linkedin: 1100, instagram: 1900, facebook: 800 }[platform] + Math.random() * 400),
-      predictedEngagement: (Math.random() * 2.5 + 2.5).toFixed(1),
-      status: 'pending'
-    }));
-    return { day: dayName, date: date.toISOString().split('T')[0], posts };
-  });
-
-  return {
-    weekOf: monday.toISOString().split('T')[0],
-    generatedAt: new Date().toISOString(),
-    brandHealthSnapshot: { overall: health.overall, linkedin: health.platforms.linkedin.score, instagram: health.platforms.instagram.score, facebook: health.platforms.facebook.score },
-    totalPosts: plan.reduce((a, d) => a + d.posts.length, 0),
-    plan
-  };
-}
-
-// In-memory stored plans
-state.weeklyPlan = null;
-state.monthlyPlan = null;
-state.credentials = {
-  openai: process.env.OPENAI_API_KEY || '',
-  linkedin: { clientId: '', clientSecret: '', redirectUri: `http://localhost:3000/oauth/linkedin/callback` },
-  instagram: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/instagram/callback` },
-  facebook: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/facebook/callback` }
-};
-
-// GPT brand health insights
 app.get('/api/brand-health/insights', async (req, res) => {
-  const health = computeBrandHealth();
-  const ai = getOpenAI();
-  if (!ai) return res.json({ insights: null, health });
+  const health = brandHealth();
   try {
-    const completion = await ai.chat.completions.create({
-      model: 'gpt-4o-mini',
-      messages: [
-        { role: 'system', content: TEKYDOCT_SYSTEM },
-        { role: 'user', content: `TekyDoct brand health scores: LinkedIn ${health.platforms.linkedin.score}/100, Instagram ${health.platforms.instagram.score}/100, Facebook ${health.platforms.facebook.score}/100, Overall ${health.overall}/100.
-Give 3 specific, actionable content strategy recommendations to improve the weakest platform. Be concrete — mention post types, topics, and timing. Max 120 words total, 3 bullet points.` }
-      ],
-      max_tokens: 200,
-      temperature: 0.7
-    });
-    res.json({ insights: completion.choices[0].message.content.trim(), health, aiPowered: true });
-  } catch (e) {
-    res.json({ insights: null, health, aiPowered: false });
+    const connected = Object.entries(health.platforms).filter(([,v])=>v.connected).map(([k])=>k);
+    const insights = await gpt([
+      { role: 'system', content: BRAND },
+      { role: 'user', content: `TekyDoct brand health: LinkedIn ${health.platforms.linkedin.score}/100, Instagram ${health.platforms.instagram.score}/100, Facebook ${health.platforms.facebook.score}/100. Connected: ${connected.join(', ')||'none'}. Total posts: ${state.posts.length}.\nGive 3 specific, actionable recommendations to improve the weakest platform. 3 bullet points, max 100 words.` }
+    ], { max_tokens: 200 });
+    res.json({ insights, health, aiPowered: true });
+  } catch(e) { res.json({ insights: null, health, aiPowered: false, error: e.message }); }
+});
+
+// ─── Trending Topics — GPT powered, 1hr cache ─────────────────────────────────
+const trendCache = { data: null, ts: 0 };
+app.get('/api/trends', async (req, res) => {
+  if (trendCache.data && Date.now() - trendCache.ts < 3600000) return res.json(trendCache.data);
+  try {
+    const raw = await gpt([
+      { role: 'system', content: BRAND },
+      { role: 'user', content: `List 10 trending topics in 2025-2026 most relevant to TekyDoct (Zoho ecosystem, IT infrastructure, CCTV/security, Brunei digital economy, SME automation, networking, cybersecurity).\nReturn JSON: {"trends":[{"id":"t1","topic":"name","category":"zoho/technology/security/local/networking","heat":"hot/rising/warm","relevance":95,"volume":"+XX%","description":"one sentence why trending and relevant to TekyDoct"}]}` }
+    ], { max_tokens: 900, response_format: { type: 'json_object' } });
+    const parsed = JSON.parse(raw);
+    trendCache.data = { trends: parsed.trends, updatedAt: new Date().toISOString(), aiPowered: true };
+    trendCache.ts = Date.now();
+    res.json(trendCache.data);
+  } catch(e) {
+    res.status(503).json({ error: e.message });
   }
 });
 
-app.get('/api/planner/weekly', async (req, res) => {
-  const offset = parseInt(req.query.offset || '0');
-  const ai = getOpenAI();
-  if (ai) {
-    try {
-      const health = computeBrandHealth();
-      const today = new Date();
-      const monday = new Date(today);
-      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + offset * 7);
-      monday.setHours(0, 0, 0, 0);
-      const weekDates = Array.from({ length: 7 }, (_, i) => {
-        const d = new Date(monday); d.setDate(monday.getDate() + i);
-        return d.toISOString().split('T')[0];
-      });
-      const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
-      const schedule = [['linkedin','instagram'],['linkedin'],['facebook','instagram'],['linkedin'],['facebook','instagram'],['instagram'],[]];
-      const topTrends = trendBank.filter(t => t.heat === 'hot').slice(0, 4).map(t => t.topic).join(', ');
-
-      const prompt = `Generate a 7-day social media content plan for TekyDoct for the week of ${weekDates[0]}.
-Brand health: LinkedIn ${health.platforms.linkedin.score}/100, Instagram ${health.platforms.instagram.score}/100, Facebook ${health.platforms.facebook.score}/100.
-Trending topics to weave in: ${topTrends}.
-
-Day schedule: Mon(linkedin+instagram), Tue(linkedin), Wed(facebook+instagram), Thu(linkedin), Fri(facebook+instagram), Sat(instagram), Sun(rest).
-Best times: LinkedIn 09:00-11:00 BST, Instagram 11:00-18:00 BST, Facebook 13:00-14:00 BST.
-
-For each post write a COMPLETE, PUBLISH-READY caption. Not a placeholder. Full caption with hashtags.
-
-Return valid JSON only:
-{"plan":[{"day":"Monday","date":"${weekDates[0]}","posts":[{"platform":"linkedin","time":"09:00","caption":"FULL CAPTION WITH HASHTAGS","hashtags":["#tag1"],"predictedReach":1200,"predictedEngagement":"4.2","trend":"trend name"}]}]}`;
-
-      const completion = await ai.chat.completions.create({
-        model: 'gpt-4o-mini',
-        messages: [
-          { role: 'system', content: TEKYDOCT_SYSTEM },
-          { role: 'user', content: prompt }
-        ],
-        max_tokens: 4000,
-        temperature: 0.75,
-        response_format: { type: 'json_object' }
-      });
-
-      const parsed = JSON.parse(completion.choices[0].message.content);
-      const plan = parsed.plan || [];
-      // Ensure all 7 days present
-      const fullPlan = days.map((day, i) => {
-        const found = plan.find(d => d.day === day);
-        return found || { day, date: weekDates[i], posts: [] };
-      });
-      return res.json({
-        weekOf: weekDates[0],
-        generatedAt: new Date().toISOString(),
-        aiPowered: true,
-        brandHealthSnapshot: { overall: health.overall, linkedin: health.platforms.linkedin.score, instagram: health.platforms.instagram.score, facebook: health.platforms.facebook.score },
-        totalPosts: fullPlan.reduce((a, d) => a + d.posts.length, 0),
-        plan: fullPlan
-      });
-    } catch (e) {
-      console.error('GPT weekly plan error:', e.message);
-    }
+// ─── Analytics ────────────────────────────────────────────────────────────────
+function analyticsEstimate(platform, period) {
+  const days = period==='7d'?7:period==='30d'?30:90;
+  const base = { linkedin:{r:1200,e:4.2}, instagram:{r:2000,e:5.8}, facebook:{r:900,e:3.1} }[platform];
+  const labels=[],reach=[],engagement=[],clicks=[];
+  for (let i=days-1;i>=0;i--) {
+    const d = new Date(Date.now()-i*86400000);
+    labels.push(d.toLocaleDateString('en-GB',{month:'short',day:'numeric'}));
+    reach.push(Math.round(base.r+(Math.random()-.4)*base.r*.25));
+    engagement.push((base.e+(Math.random()-.5)*1.2).toFixed(1));
+    clicks.push(Math.round(Math.random()*80+20));
   }
-  res.json(generateWeeklyPlan(offset));
+  const totals = {
+    reach: reach.reduce((a,b)=>a+b,0),
+    engagement: (engagement.reduce((a,b)=>a+parseFloat(b),0)/engagement.length).toFixed(1),
+    clicks: clicks.reduce((a,b)=>a+b,0),
+    posts: state.posts.filter(p=>p.platform===platform&&p.status==='published').length,
+    followers: state.platforms[platform]?.account?.followers||0
+  };
+  return { labels, datasets:{reach,engagement,clicks}, totals };
+}
+
+app.get('/api/analytics', (req, res) => {
+  const { platform='all', period='30d' } = req.query;
+  if (platform==='all') {
+    const result = {};
+    for (const p of ['linkedin','instagram','facebook']) result[p] = analyticsEstimate(p, period);
+    const c = {reach:0,engagement:0,clicks:0,posts:0,followers:0};
+    for (const d of Object.values(result)) { c.reach+=d.totals.reach; c.engagement+=parseFloat(d.totals.engagement); c.clicks+=d.totals.clicks; c.posts+=d.totals.posts; c.followers+=d.totals.followers; }
+    c.engagement = (c.engagement/3).toFixed(1);
+    result.combined = c;
+    return res.json(result);
+  }
+  res.json(analyticsEstimate(platform, period));
+});
+
+// ─── Smart Planner: Weekly — GPT only ────────────────────────────────────────
+app.get('/api/planner/weekly', async (req, res) => {
+  const offset = parseInt(req.query.offset||'0');
+  const today = new Date();
+  const mon = new Date(today);
+  mon.setDate(today.getDate()-((today.getDay()+6)%7)+offset*7);
+  mon.setHours(0,0,0,0);
+  const dates = Array.from({length:7},(_,i)=>{const d=new Date(mon);d.setDate(mon.getDate()+i);return d.toISOString().split('T')[0];});
+  const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+  const health = brandHealth();
+  const connected = Object.entries(state.platforms).filter(([,v])=>v.connected).map(([k])=>k);
+  const platforms = connected.length ? connected : ['linkedin','instagram','facebook'];
+
+  try {
+    const prompt = `Generate a complete 7-day social media content plan for TekyDoct. Week starting ${dates[0]}.
+Brand health — LinkedIn: ${health.platforms.linkedin.score}/100, Instagram: ${health.platforms.instagram.score}/100, Facebook: ${health.platforms.facebook.score}/100.
+Active platforms: ${platforms.join(', ')}.
+
+Posting schedule:
+- Monday: linkedin + instagram
+- Tuesday: linkedin
+- Wednesday: facebook + instagram
+- Thursday: linkedin
+- Friday: facebook + instagram
+- Saturday: instagram
+- Sunday: rest (empty posts array)
+
+Best posting times: LinkedIn 09:00 BST, Instagram 11:00 or 18:00 BST, Facebook 13:00 BST.
+
+Write COMPLETE publish-ready captions. Each must be full length, platform-appropriate, with hashtags. Cover different topics: Zoho CRM, CCTV Security, Networking, Digital Transformation, client success.
+
+Return ONLY valid JSON:
+{"plan":[{"day":"Monday","date":"${dates[0]}","posts":[{"platform":"linkedin","time":"09:00","caption":"FULL CAPTION WITH HASHTAGS HERE","hashtags":["#TekyDoct","#Brunei"],"predictedReach":1200,"predictedEngagement":"4.2","trend":"Zoho CRM"}]}]}`;
+
+    const raw = await gpt([
+      { role: 'system', content: BRAND },
+      { role: 'user', content: prompt }
+    ], { max_tokens: 4500, temperature: 0.75, response_format: { type: 'json_object' } });
+
+    const parsed = JSON.parse(raw);
+    const fullPlan = days.map((day,i) => (parsed.plan||[]).find(d=>d.day===day) || {day,date:dates[i],posts:[]});
+    res.json({ weekOf:dates[0], generatedAt:new Date().toISOString(), aiPowered:true, brandHealthSnapshot:{overall:health.overall,linkedin:health.platforms.linkedin.score,instagram:health.platforms.instagram.score,facebook:health.platforms.facebook.score}, totalPosts:fullPlan.reduce((a,d)=>a+d.posts.length,0), plan:fullPlan });
+  } catch(e) {
+    res.status(503).json({ error: e.message });
+  }
 });
 
 app.post('/api/planner/weekly/push', (req, res) => {
   const { posts } = req.body;
   let added = 0;
-  for (const p of (posts || [])) {
-    if (!p.caption || !p.platform) continue;
-    const dt = p.date && p.time ? new Date(p.date + 'T' + p.time + ':00') : new Date();
-    state.posts.unshift({ id: 'p' + Date.now() + added, platform: p.platform, content: p.caption, scheduledAt: dt.toISOString(), publishedAt: null, status: 'scheduled', engagement: null, image: null, createdAt: new Date().toISOString() });
+  for (const p of (posts||[])) {
+    if (!p.caption||!p.platform) continue;
+    const dt = p.date&&p.time ? new Date(p.date+'T'+p.time+':00') : new Date();
+    state.posts.unshift({id:'p'+Date.now()+added,platform:p.platform,content:p.caption,scheduledAt:dt.toISOString(),publishedAt:null,status:'scheduled',engagement:null,image:null,createdAt:new Date().toISOString()});
     added++;
   }
-  state.notifications.unshift({ id: 'n' + Date.now(), type: 'success', message: `${added} posts from Smart Planner added to schedule`, time: new Date().toISOString(), read: false });
-  res.json({ success: true, added });
+  state.notifications.unshift({id:'n'+Date.now(),type:'success',message:`${added} posts from Smart Planner added to schedule`,time:new Date().toISOString(),read:false});
+  res.json({ success:true, added });
 });
 
-// Monthly plan
-function generateMonthlyPlan(year, month) {
-  const themes = [
-    { week: 1, theme: 'Zoho Product Spotlight', color: '#7c3aed', icon: '🔮', focus: 'Highlight Zoho CRM, Zoho One, Zoho Books features and client wins' },
-    { week: 2, theme: 'Security & Infrastructure', color: '#0077b5', icon: '🔒', focus: 'CCTV, networking, structured cabling, access control solutions' },
-    { week: 3, theme: 'Digital Transformation', color: '#ec4899', icon: '🚀', focus: 'Client success stories, before/after digital journeys, case studies' },
-    { week: 4, theme: 'Community & Brand', color: '#10b981', icon: '🌟', focus: 'Team highlights, company milestones, Brunei tech community engagement' }
-  ];
-  const firstDay = new Date(year, month, 1);
-  const lastDay = new Date(year, month + 1, 0);
-  const calendar = {};
-  for (let d = 1; d <= lastDay.getDate(); d++) {
-    const date = new Date(year, month, d);
-    const dow = date.getDay();
-    const weekNum = Math.ceil((d + ((firstDay.getDay() + 6) % 7)) / 7);
-    const theme = themes[Math.min(weekNum - 1, 3)];
-    const platforms = [1, 2, 4].includes(dow) ? ['linkedin'] : [3].includes(dow) ? ['instagram', 'facebook'] : [5].includes(dow) ? ['instagram'] : [];
-    if (!platforms.length) { calendar[d] = { date: date.toISOString().split('T')[0], theme: theme.theme, themeColor: theme.color, posts: [] }; continue; }
-    const trend = trendBank[d % trendBank.length];
-    calendar[d] = {
-      date: date.toISOString().split('T')[0],
-      theme: theme.theme, themeColor: theme.color, themeIcon: theme.icon,
-      posts: platforms.map(pl => ({ platform: pl, time: getBestTime(pl, dow), topic: trend.topic, predictedReach: Math.round({ linkedin: 1200, instagram: 1800, facebook: 850 }[pl] + Math.random() * 300) }))
-    };
-  }
-  return { year, month, monthName: new Date(year, month, 1).toLocaleString('en-GB', { month: 'long', year: 'numeric' }), themes, calendar, totalPostDays: Object.values(calendar).filter(d => d.posts && d.posts.length > 0).length };
-}
-
+// ─── Monthly Plan ─────────────────────────────────────────────────────────────
 app.get('/api/planner/monthly', (req, res) => {
   const now = new Date();
-  const year = parseInt(req.query.year || now.getFullYear());
-  const month = parseInt(req.query.month ?? now.getMonth());
-  res.json(generateMonthlyPlan(year, month));
+  const year = parseInt(req.query.year||now.getFullYear());
+  const month = parseInt(req.query.month??now.getMonth());
+  const themes = [
+    {week:1,theme:'Zoho Product Spotlight',color:'#7c3aed',icon:'🔮',focus:'Zoho CRM, Zoho One, Zoho Books features and client wins'},
+    {week:2,theme:'Security & Infrastructure',color:'#0077b5',icon:'🔒',focus:'CCTV, networking, structured cabling, access control'},
+    {week:3,theme:'Digital Transformation',color:'#ec4899',icon:'🚀',focus:'Client success stories, digital journeys, case studies'},
+    {week:4,theme:'Community & Brand',color:'#10b981',icon:'🌟',focus:'Team highlights, company milestones, Brunei tech community'}
+  ];
+  const firstDay = new Date(year,month,1);
+  const lastDay = new Date(year,month+1,0);
+  const calendar = {};
+  for (let d=1;d<=lastDay.getDate();d++) {
+    const date = new Date(year,month,d);
+    const dow = date.getDay();
+    const weekNum = Math.ceil((d+((firstDay.getDay()+6)%7))/7);
+    const theme = themes[Math.min(weekNum-1,3)];
+    const plats = [1,2,4].includes(dow)?['linkedin']:[3].includes(dow)?['instagram','facebook']:[5].includes(dow)?['instagram']:[];
+    calendar[d] = { date:date.toISOString().split('T')[0], theme:theme.theme, themeColor:theme.color, themeIcon:theme.icon, posts:plats.map(pl=>({platform:pl,time:{linkedin:'09:00',instagram:'11:00',facebook:'13:00'}[pl],predictedReach:Math.round({linkedin:1200,instagram:1800,facebook:850}[pl]+Math.random()*300)})) };
+  }
+  res.json({ year, month, monthName:new Date(year,month,1).toLocaleString('en-GB',{month:'long',year:'numeric'}), themes, calendar, totalPostDays:Object.values(calendar).filter(d=>d.posts?.length>0).length, aiPowered:!!getOpenAI() });
 });
 
-// ─── Settings: Credentials ────────────────────────────────────────────────────
-app.get('/api/settings/credentials', (req, res) => {
-  const masked = {};
-  for (const [p, c] of Object.entries(state.credentials)) {
-    masked[p] = { ...c };
-    if (c.clientId) masked[p].clientId = c.clientId.slice(0, 6) + '…';
-    if (c.appId) masked[p].appId = c.appId.slice(0, 6) + '…';
-    if (c.clientSecret) masked[p].clientSecret = '••••••••';
-    if (c.appSecret) masked[p].appSecret = '••••••••';
-    masked[p].configured = !!(c.clientId || c.appId);
-  }
-  res.json(masked);
-});
+// ─── Settings / Credentials ───────────────────────────────────────────────────
+app.get('/api/settings/credentials', (req, res) => res.json({
+  openai:   { configured: !!state.credentials.openai },
+  linkedin: { configured: !!state.credentials.linkedin.clientId, redirectUri: state.credentials.linkedin.redirectUri },
+  facebook: { configured: !!state.credentials.facebook.appId,    redirectUri: state.credentials.facebook.redirectUri }
+}));
 
 app.post('/api/settings/credentials', (req, res) => {
-  const { platform, clientId, appId, clientSecret, appSecret, apiKey } = req.body;
-  // OpenAI key
-  if (platform === 'openai') {
-    state.credentials.openai = apiKey || '';
-    _openaiClient = null; // reset client so new key is used
-    state.notifications.unshift({ id: 'n' + Date.now(), type: 'success', message: 'OpenAI API key saved — AI features now active', time: new Date().toISOString(), read: false });
-    return res.json({ success: true, aiActive: !!state.credentials.openai });
+  const { platform, apiKey, clientId, clientSecret, appId, appSecret } = req.body;
+  if (platform==='openai') {
+    state.credentials.openai = apiKey||''; _ai=null;
+    return res.json({ success:true, aiActive:!!state.credentials.openai });
   }
-  if (!platform || !state.credentials[platform]) return res.status(400).json({ error: 'Invalid platform' });
-  if (clientId !== undefined) state.credentials[platform].clientId = clientId;
-  if (appId !== undefined) state.credentials[platform].appId = appId;
-  if (clientSecret !== undefined) state.credentials[platform].clientSecret = clientSecret;
-  if (appSecret !== undefined) state.credentials[platform].appSecret = appSecret;
-  state.notifications.unshift({ id: 'n' + Date.now(), type: 'success', message: `${platform} credentials updated`, time: new Date().toISOString(), read: false });
-  res.json({ success: true });
+  if (platform==='linkedin') { if(clientId) state.credentials.linkedin.clientId=clientId; if(clientSecret) state.credentials.linkedin.clientSecret=clientSecret; }
+  if (platform==='facebook'||platform==='instagram') { if(appId) state.credentials.facebook.appId=appId; if(appSecret) state.credentials.facebook.appSecret=appSecret; }
+  state.notifications.unshift({id:'n'+Date.now(),type:'success',message:`${platform} credentials saved`,time:new Date().toISOString(),read:false});
+  res.json({ success:true });
 });
 
-// Check AI status
-app.get('/api/ai/status', (req, res) => {
-  res.json({ active: !!getOpenAI(), model: 'gpt-4o-mini' });
+// ─── SSE Monitoring ───────────────────────────────────────────────────────────
+app.get('/api/monitoring/stream', (req, res) => {
+  res.setHeader('Content-Type','text/event-stream');
+  res.setHeader('Cache-Control','no-cache');
+  res.setHeader('Connection','keep-alive');
+  res.flushHeaders();
+  const evts = [
+    {type:'like',platform:'linkedin',msg:'Someone liked your LinkedIn post about Zoho CRM',icon:'👍'},
+    {type:'comment',platform:'instagram',msg:'New comment on your Instagram post',icon:'💬'},
+    {type:'share',platform:'facebook',msg:'Your Facebook post was shared',icon:'🔁'},
+    {type:'follow',platform:'instagram',msg:'New Instagram followers',icon:'➕'},
+    {type:'mention',platform:'linkedin',msg:'TekyDoct was mentioned on LinkedIn',icon:'📢'},
+    {type:'message',platform:'facebook',msg:'New inquiry message on Facebook Page',icon:'✉️'},
+    {type:'reach',platform:'instagram',msg:'Your Instagram story hit 400 views',icon:'👁️'},
+  ];
+  const send = () => res.write(`data: ${JSON.stringify({...evts[Math.floor(Math.random()*evts.length)],id:'e'+Date.now(),timestamp:new Date().toISOString()})}\n\n`);
+  send();
+  const iv = setInterval(send, Math.random()*8000+6000);
+  req.on('close',()=>clearInterval(iv));
 });
 
-// ─── Serve SPA for all other routes ──────────────────────────────────────────
-app.get('*', (req, res) => {
-  res.sendFile(path.join(__dirname, 'public', 'index.html'));
-});
+// ─── SPA ──────────────────────────────────────────────────────────────────────
+app.get('*', (req, res) => res.sendFile(path.join(__dirname,'public','index.html')));
 
 app.listen(PORT, () => {
-  console.log(`\n✅ TekyDoct Social Planner running at http://localhost:${PORT}\n`);
-  console.log('   Open your browser and go to: http://localhost:3000');
-  console.log('   Press Ctrl+C to stop the server\n');
+  console.log(`\n✅ TekyDoct Social Planner v2.0 — http://localhost:${PORT}`);
+  console.log(`   AI (GPT-4o-mini): ${getOpenAI() ? '✅ Active' : '❌ Add OPENAI_API_KEY'}`);
+  console.log(`   LinkedIn OAuth:   ${state.credentials.linkedin.clientId ? '✅ Configured' : '⚠️  Add LINKEDIN_CLIENT_ID + SECRET'}`);
+  console.log(`   Facebook OAuth:   ${state.credentials.facebook.appId ? '✅ Configured' : '⚠️  Add FACEBOOK_APP_ID + SECRET'}`);
+  console.log(`   Press Ctrl+C to stop\n`);
 });
