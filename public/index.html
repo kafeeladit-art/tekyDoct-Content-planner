@@ -614,8 +614,28 @@ hr.divider{border:none;border-top:1px solid rgba(124,58,237,.08);margin:16px 0;}
       <div><div class="page-title">⚙️ Settings & API Keys</div><div class="page-sub">Connect real social media accounts with OAuth credentials</div></div>
     </div>
 
+    <!-- OpenAI Key Card -->
+    <div class="card full-col" style="margin-bottom:20px;border:2px solid rgba(124,58,237,.2);">
+      <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px;">
+        <div style="width:40px;height:40px;border-radius:12px;background:var(--grad);display:flex;align-items:center;justify-content:center;font-size:18px;">🤖</div>
+        <div>
+          <div style="font-weight:800;font-size:15px;color:var(--text);">OpenAI API Key</div>
+          <div style="font-size:11px;color:var(--muted);">Powers real AI captions, weekly plan generation, and brand insights</div>
+        </div>
+        <span id="aiStatusBadge" style="margin-left:auto;font-size:11px;font-weight:700;padding:4px 12px;border-radius:20px;background:rgba(107,114,128,.1);color:var(--muted);">Not Active</span>
+      </div>
+      <div style="display:flex;gap:10px;align-items:flex-end;">
+        <div class="form-group" style="flex:1;margin-bottom:0;">
+          <label class="form-label">OpenAI API Key (sk-...)</label>
+          <input class="form-input" id="openaiKey" type="password" placeholder="sk-proj-••••••••••••••••••••••••••">
+        </div>
+        <button class="btn-cta" style="flex-shrink:0;padding:10px 20px;" onclick="saveOpenAIKey()">Save & Activate</button>
+      </div>
+      <p style="font-size:11px;color:var(--muted);margin-top:8px;">Get your key at <strong>platform.openai.com/api-keys</strong>. For Railway deployment, also add it as <strong>OPENAI_API_KEY</strong> in the Variables tab.</p>
+    </div>
+
     <div class="card full-col" style="margin-bottom:20px;">
-      <div class="card-title">🔑 Platform API Credentials</div>
+      <div class="card-title">🔑 Social Media Platform Credentials</div>
       <p style="font-size:13px;color:var(--muted);line-height:1.7;margin-bottom:20px;">To link <strong>real</strong> social media accounts, register a developer app on each platform and paste your credentials below. Once saved, the OAuth "Connect" buttons will use your real app for authentication.</p>
 
       <!-- LinkedIn -->
@@ -779,6 +799,7 @@ function showSection(id) {
   if(id === 'monitor') startMonitor();
   if(id === 'content') loadScheduled();
   if(id === 'accounts') renderAccountCards();
+  if(id === 'settings') checkAIStatus();
 }
 
 // ── Platform Loading ─────────────────────────────────────────────
@@ -1452,6 +1473,34 @@ function renderMonthlyPlan(data) {
 }
 
 // ── Settings ─────────────────────────────────────────────────────
+async function saveOpenAIKey() {
+  const key = document.getElementById('openaiKey').value.trim();
+  if (!key || !key.startsWith('sk-')) return showToast('Enter a valid OpenAI key (starts with sk-)', 'error');
+  const r = await fetch(API+'/api/settings/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({platform:'openai',apiKey:key})});
+  const data = await r.json();
+  if(data.success) {
+    document.getElementById('openaiKey').value = '';
+    updateAIStatusBadge(true);
+    showToast('OpenAI key saved — GPT-4o-mini now powering all AI features ✅', 'success');
+  }
+}
+
+async function checkAIStatus() {
+  try {
+    const r = await fetch(API+'/api/ai/status');
+    const data = await r.json();
+    updateAIStatusBadge(data.active);
+  } catch(e) {}
+}
+
+function updateAIStatusBadge(active) {
+  const badge = document.getElementById('aiStatusBadge');
+  if(!badge) return;
+  badge.textContent = active ? '✓ GPT-4o-mini Active' : 'Not Active';
+  badge.style.background = active ? 'rgba(16,185,129,.1)' : 'rgba(107,114,128,.1)';
+  badge.style.color = active ? 'var(--success)' : 'var(--muted)';
+}
+
 async function saveCredentials(platform) {
   const creds = { platform };
   if(platform==='linkedin') { creds.clientId=document.getElementById('li-clientId').value.trim(); creds.clientSecret=document.getElementById('li-clientSecret').value.trim(); }

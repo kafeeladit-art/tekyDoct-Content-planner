@@ -1,6 +1,29 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const OpenAI = require('openai');
+
+// ─── OpenAI Client ─────────────────────────────────────────────────────────────
+let _openaiClient = null;
+let _openaiKey = null;
+
+function getOpenAI() {
+  const key = process.env.OPENAI_API_KEY || state?.credentials?.openai || '';
+  if (!key) return null;
+  if (!_openaiClient || _openaiKey !== key) {
+    _openaiClient = new OpenAI({ apiKey: key });
+    _openaiKey = key;
+  }
+  return _openaiClient;
+}
+
+const TEKYDOCT_SYSTEM = `You are an expert social media strategist for TekyDoct Sdn Bhd — Brunei's #1 Zoho Premium Partner since 2006.
+About TekyDoct:
+- Brunei-based IT solutions company, 18+ years in business
+- Services: Zoho CRM, Zoho One, Zoho Books, Zoho Campaigns, IP CCTV & Security, Structured Cabling & Networking, WiFi Solutions, Digital Transformation, IT Procurement
+- Target audience: Brunei SMEs, corporations, government-linked companies
+- Brand voice: Professional, knowledgeable, locally relevant, solution-focused
+- Key differentiators: Brunei's only Zoho Premium Partner, 150+ clients, full-stack IT solutions under one roof`;
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -352,32 +375,62 @@ app.post('/api/notifications/read-all', (req, res) => {
   res.json({ success: true });
 });
 
-// AI Caption Generation (simulated 1.5s latency)
-app.post('/api/ai/generate', (req, res) => {
-  const { topic, platform, tone } = req.body;
-  setTimeout(() => {
-    const topicKey = topic ? topic.toLowerCase().replace(/\s+/g, '_') : 'digital_transformation';
-    const templateGroup = captionTemplates[topicKey] || captionTemplates['digital_transformation'];
-    const platformTemplates = templateGroup[platform] || templateGroup['linkedin'] || [];
-    let caption = platformTemplates[Math.floor(Math.random() * platformTemplates.length)];
-    if (!caption) caption = `Exciting things are happening at TekyDoct! Stay tuned for updates on ${topic || 'our latest solutions'}. #TekyDoct #Brunei #Technology`;
+// AI Caption Generation — GPT-powered with mock fallback
+app.post('/api/ai/generate', async (req, res) => {
+  const { topic, platform, tone = 'professional' } = req.body;
+  const ai = getOpenAI();
 
-    // Hashtag suggestions
-    const hashtagMap = {
-      linkedin: ['#TekyDoct', '#Brunei', '#DigitalTransformation', '#ZohoPartner', '#ITSolutions'],
-      instagram: ['#TekyDoct', '#Brunei', '#TechLife', '#Innovation', '#BruneiTech', '#SME'],
-      facebook: ['#TekyDoct', '#Brunei', '#Technology', '#BusinessSolutions']
-    };
-    const hashtags = hashtagMap[platform] || hashtagMap['linkedin'];
+  if (ai) {
+    try {
+      const platformGuide = {
+        linkedin: '150-250 words, professional tone, include a relevant stat or insight, 3-5 hashtags at the end',
+        instagram: '80-120 words, energetic with 2-3 relevant emojis, include CTA like "DM us" or "Link in bio", 8-12 hashtags at the end',
+        facebook: '100-150 words, conversational and community-focused, end with a question or CTA, 3-5 hashtags'
+      };
+      const completion = await ai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: TEKYDOCT_SYSTEM },
+          { role: 'user', content: `Write a ${platform} post about "${topic}" in a ${tone} tone.\nFormat: ${platformGuide[platform] || platformGuide.linkedin}\nReturn only the post caption — no labels, no preamble, no quotes around it.` }
+        ],
+        max_tokens: 400,
+        temperature: 0.8
+      });
+      const caption = completion.choices[0].message.content.trim();
+      const hashtagMatch = caption.match(/#\w+/g) || [];
+      return res.json({
+        caption,
+        hashtags: hashtagMatch.slice(0, 12),
+        estimatedReach: Math.round(Math.random() * 1500 + 800),
+        bestTime: platform === 'linkedin' ? 'Tue–Thu, 9–11 AM BST' : platform === 'instagram' ? 'Mon/Wed/Fri, 11AM–6PM BST' : 'Wed 1PM or Fri 2PM BST',
+        engagementScore: (Math.random() * 2 + 4).toFixed(1),
+        aiPowered: true
+      });
+    } catch (e) {
+      console.error('GPT caption error:', e.message);
+    }
+  }
 
-    res.json({
-      caption,
-      hashtags,
-      estimatedReach: Math.round(Math.random() * 1500 + 500),
-      bestTime: platform === 'linkedin' ? 'Tuesday–Thursday, 9–11 AM BST' : platform === 'instagram' ? 'Mon/Wed/Fri, 11AM–6PM BST' : 'Wednesday 1PM or Friday 2PM BST',
-      engagementScore: Math.round(Math.random() * 3 + 6) / 10
-    });
-  }, 1500);
+  // Mock fallback
+  await new Promise(r => setTimeout(r, 1200));
+  const topicKey = topic ? topic.toLowerCase().replace(/\s+/g, '_') : 'digital_transformation';
+  const templateGroup = captionTemplates[topicKey] || captionTemplates['digital_transformation'];
+  const platformTemplates = templateGroup[platform] || templateGroup['linkedin'] || [];
+  let caption = platformTemplates[Math.floor(Math.random() * platformTemplates.length)];
+  if (!caption) caption = `Exciting things are happening at TekyDoct! Stay tuned for updates on ${topic || 'our latest solutions'}. #TekyDoct #Brunei #Technology`;
+  const hashtagMap = {
+    linkedin: ['#TekyDoct', '#Brunei', '#DigitalTransformation', '#ZohoPartner', '#ITSolutions'],
+    instagram: ['#TekyDoct', '#Brunei', '#TechLife', '#Innovation', '#BruneiTech', '#SME'],
+    facebook: ['#TekyDoct', '#Brunei', '#Technology', '#BusinessSolutions']
+  };
+  res.json({
+    caption,
+    hashtags: hashtagMap[platform] || hashtagMap['linkedin'],
+    estimatedReach: Math.round(Math.random() * 1500 + 500),
+    bestTime: platform === 'linkedin' ? 'Tue–Thu, 9–11 AM BST' : platform === 'instagram' ? 'Mon/Wed/Fri, 11AM–6PM BST' : 'Wed 1PM or Fri 2PM BST',
+    engagementScore: (Math.random() * 3 + 6) / 10,
+    aiPowered: false
+  });
 });
 
 // SSE — Real-time monitoring stream
@@ -604,12 +657,96 @@ function generateWeeklyPlan(weekOffset = 0) {
 // In-memory stored plans
 state.weeklyPlan = null;
 state.monthlyPlan = null;
-state.credentials = { linkedin: { clientId: '', clientSecret: '', redirectUri: `http://localhost:3000/oauth/linkedin/callback` }, instagram: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/instagram/callback` }, facebook: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/facebook/callback` } };
+state.credentials = {
+  openai: process.env.OPENAI_API_KEY || '',
+  linkedin: { clientId: '', clientSecret: '', redirectUri: `http://localhost:3000/oauth/linkedin/callback` },
+  instagram: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/instagram/callback` },
+  facebook: { appId: '', appSecret: '', redirectUri: `http://localhost:3000/oauth/facebook/callback` }
+};
 
-app.get('/api/planner/weekly', (req, res) => {
+// GPT brand health insights
+app.get('/api/brand-health/insights', async (req, res) => {
+  const health = computeBrandHealth();
+  const ai = getOpenAI();
+  if (!ai) return res.json({ insights: null, health });
+  try {
+    const completion = await ai.chat.completions.create({
+      model: 'gpt-4o-mini',
+      messages: [
+        { role: 'system', content: TEKYDOCT_SYSTEM },
+        { role: 'user', content: `TekyDoct brand health scores: LinkedIn ${health.platforms.linkedin.score}/100, Instagram ${health.platforms.instagram.score}/100, Facebook ${health.platforms.facebook.score}/100, Overall ${health.overall}/100.
+Give 3 specific, actionable content strategy recommendations to improve the weakest platform. Be concrete — mention post types, topics, and timing. Max 120 words total, 3 bullet points.` }
+      ],
+      max_tokens: 200,
+      temperature: 0.7
+    });
+    res.json({ insights: completion.choices[0].message.content.trim(), health, aiPowered: true });
+  } catch (e) {
+    res.json({ insights: null, health, aiPowered: false });
+  }
+});
+
+app.get('/api/planner/weekly', async (req, res) => {
   const offset = parseInt(req.query.offset || '0');
-  const plan = generateWeeklyPlan(offset);
-  res.json(plan);
+  const ai = getOpenAI();
+  if (ai) {
+    try {
+      const health = computeBrandHealth();
+      const today = new Date();
+      const monday = new Date(today);
+      monday.setDate(today.getDate() - ((today.getDay() + 6) % 7) + offset * 7);
+      monday.setHours(0, 0, 0, 0);
+      const weekDates = Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(monday); d.setDate(monday.getDate() + i);
+        return d.toISOString().split('T')[0];
+      });
+      const days = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
+      const schedule = [['linkedin','instagram'],['linkedin'],['facebook','instagram'],['linkedin'],['facebook','instagram'],['instagram'],[]];
+      const topTrends = trendBank.filter(t => t.heat === 'hot').slice(0, 4).map(t => t.topic).join(', ');
+
+      const prompt = `Generate a 7-day social media content plan for TekyDoct for the week of ${weekDates[0]}.
+Brand health: LinkedIn ${health.platforms.linkedin.score}/100, Instagram ${health.platforms.instagram.score}/100, Facebook ${health.platforms.facebook.score}/100.
+Trending topics to weave in: ${topTrends}.
+
+Day schedule: Mon(linkedin+instagram), Tue(linkedin), Wed(facebook+instagram), Thu(linkedin), Fri(facebook+instagram), Sat(instagram), Sun(rest).
+Best times: LinkedIn 09:00-11:00 BST, Instagram 11:00-18:00 BST, Facebook 13:00-14:00 BST.
+
+For each post write a COMPLETE, PUBLISH-READY caption. Not a placeholder. Full caption with hashtags.
+
+Return valid JSON only:
+{"plan":[{"day":"Monday","date":"${weekDates[0]}","posts":[{"platform":"linkedin","time":"09:00","caption":"FULL CAPTION WITH HASHTAGS","hashtags":["#tag1"],"predictedReach":1200,"predictedEngagement":"4.2","trend":"trend name"}]}]}`;
+
+      const completion = await ai.chat.completions.create({
+        model: 'gpt-4o-mini',
+        messages: [
+          { role: 'system', content: TEKYDOCT_SYSTEM },
+          { role: 'user', content: prompt }
+        ],
+        max_tokens: 4000,
+        temperature: 0.75,
+        response_format: { type: 'json_object' }
+      });
+
+      const parsed = JSON.parse(completion.choices[0].message.content);
+      const plan = parsed.plan || [];
+      // Ensure all 7 days present
+      const fullPlan = days.map((day, i) => {
+        const found = plan.find(d => d.day === day);
+        return found || { day, date: weekDates[i], posts: [] };
+      });
+      return res.json({
+        weekOf: weekDates[0],
+        generatedAt: new Date().toISOString(),
+        aiPowered: true,
+        brandHealthSnapshot: { overall: health.overall, linkedin: health.platforms.linkedin.score, instagram: health.platforms.instagram.score, facebook: health.platforms.facebook.score },
+        totalPosts: fullPlan.reduce((a, d) => a + d.posts.length, 0),
+        plan: fullPlan
+      });
+    } catch (e) {
+      console.error('GPT weekly plan error:', e.message);
+    }
+  }
+  res.json(generateWeeklyPlan(offset));
 });
 
 app.post('/api/planner/weekly/push', (req, res) => {
@@ -675,7 +812,14 @@ app.get('/api/settings/credentials', (req, res) => {
 });
 
 app.post('/api/settings/credentials', (req, res) => {
-  const { platform, clientId, appId, clientSecret, appSecret } = req.body;
+  const { platform, clientId, appId, clientSecret, appSecret, apiKey } = req.body;
+  // OpenAI key
+  if (platform === 'openai') {
+    state.credentials.openai = apiKey || '';
+    _openaiClient = null; // reset client so new key is used
+    state.notifications.unshift({ id: 'n' + Date.now(), type: 'success', message: 'OpenAI API key saved — AI features now active', time: new Date().toISOString(), read: false });
+    return res.json({ success: true, aiActive: !!state.credentials.openai });
+  }
   if (!platform || !state.credentials[platform]) return res.status(400).json({ error: 'Invalid platform' });
   if (clientId !== undefined) state.credentials[platform].clientId = clientId;
   if (appId !== undefined) state.credentials[platform].appId = appId;
@@ -683,6 +827,11 @@ app.post('/api/settings/credentials', (req, res) => {
   if (appSecret !== undefined) state.credentials[platform].appSecret = appSecret;
   state.notifications.unshift({ id: 'n' + Date.now(), type: 'success', message: `${platform} credentials updated`, time: new Date().toISOString(), read: false });
   res.json({ success: true });
+});
+
+// Check AI status
+app.get('/api/ai/status', (req, res) => {
+  res.json({ active: !!getOpenAI(), model: 'gpt-4o-mini' });
 });
 
 // ─── Serve SPA for all other routes ──────────────────────────────────────────
