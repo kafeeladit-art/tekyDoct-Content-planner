@@ -6,6 +6,11 @@ const OpenAI = require('openai');
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+// Auto-detect base URL (Railway sets RAILWAY_PUBLIC_DOMAIN)
+const BASE_URL = process.env.RAILWAY_PUBLIC_DOMAIN
+  ? `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`
+  : (process.env.BASE_URL || `http://localhost:${PORT}`);
+
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
@@ -24,12 +29,12 @@ const state = {
     linkedin: {
       clientId:    process.env.LINKEDIN_CLIENT_ID     || '',
       clientSecret:process.env.LINKEDIN_CLIENT_SECRET || '',
-      redirectUri: process.env.LINKEDIN_REDIRECT_URI  || `http://localhost:${process.env.PORT || 3000}/oauth/linkedin/callback`
+      redirectUri: process.env.LINKEDIN_REDIRECT_URI  || `${BASE_URL}/oauth/linkedin/callback`
     },
     facebook: {
       appId:       process.env.FACEBOOK_APP_ID        || '',
       appSecret:   process.env.FACEBOOK_APP_SECRET    || '',
-      redirectUri: process.env.FACEBOOK_REDIRECT_URI  || `http://localhost:${process.env.PORT || 3000}/oauth/facebook/callback`
+      redirectUri: process.env.FACEBOOK_REDIRECT_URI  || `${BASE_URL}/oauth/facebook/callback`
     }
   }
 };
