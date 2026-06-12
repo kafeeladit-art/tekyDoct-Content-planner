@@ -99,7 +99,7 @@ app.get('/api/oauth/linkedin/start', (req, res) => {
   state.oauthSessions[sid] = { platform: 'linkedin', ts: Date.now() };
   const p = new URLSearchParams({
     response_type: 'code', client_id: clientId, redirect_uri: redirectUri,
-    state: sid, scope: 'r_liteprofile r_emailaddress w_member_social r_organization_social'
+    state: sid, scope: 'openid profile email w_member_social'
   });
   res.json({ url: `https://www.linkedin.com/oauth/v2/authorization?${p}`, demo: false });
 });
@@ -117,24 +117,18 @@ app.get('/oauth/linkedin/callback', async (req, res) => {
     const tData = await tRes.json();
     if (!tData.access_token) throw new Error('No token: ' + JSON.stringify(tData));
 
-    const pRes = await fetch('https://api.linkedin.com/v2/me?projection=(id,localizedFirstName,localizedLastName,vanityName)', {
+    // OpenID Connect userinfo endpoint
+    const pRes = await fetch('https://api.linkedin.com/v2/userinfo', {
       headers: { Authorization: `Bearer ${tData.access_token}` }
     });
     const profile = await pRes.json();
 
-    let followers = 0;
-    try {
-      const fRes = await fetch(`https://api.linkedin.com/v2/networkSizes/urn:li:person:${profile.id}?edgeType=CompanyFollowedByMember`, { headers: { Authorization: `Bearer ${tData.access_token}` } });
-      const fData = await fRes.json();
-      followers = fData.firstDegreeSize || 0;
-    } catch(e) {}
-
     const account = {
-      id: profile.id,
-      name: `${profile.localizedFirstName} ${profile.localizedLastName}`,
-      handle: profile.vanityName || 'linkedin',
-      followers,
-      avatar: ((profile.localizedFirstName||'U')[0] + (profile.localizedLastName||'N')[0]).toUpperCase()
+      id: profile.sub,
+      name: profile.name || `${profile.given_name||''} ${profile.family_name||''}`.trim() || 'LinkedIn User',
+      handle: profile.email || 'linkedin',
+      followers: 0,
+      avatar: (profile.name||'LI')[0].toUpperCase()
     };
     state.platforms.linkedin = { connected: true, account, token: tData.access_token };
     state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `LinkedIn "${account.name}" connected`, time: new Date().toISOString(), read: false });
