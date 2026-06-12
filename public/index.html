@@ -1527,10 +1527,11 @@ async function saveCredentials(platform) {
   else if(platform==='instagram') { creds.appId=document.getElementById('ig-appId').value.trim(); creds.appSecret=document.getElementById('ig-appSecret').value.trim(); }
   else if(platform==='facebook') { creds.appId=document.getElementById('fb-appId').value.trim(); creds.appSecret=document.getElementById('fb-appSecret').value.trim(); }
   await fetch(API+'/api/settings/credentials',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(creds)});
-  const key = platform.slice(0,2);
+  const keyMap = { linkedin:'li', instagram:'ig', facebook:'fb' };
+  const key = keyMap[platform] || platform.slice(0,2);
   const statusEl = document.getElementById(`${key}-cred-status`);
   if(statusEl) { statusEl.textContent='Configured ✓'; statusEl.className='cred-status cred-configured'; }
-  showToast(`${platform} credentials saved — real OAuth will activate`, 'success');
+  showToast(`${platform} credentials saved ✅`, 'success');
 }
 
 // Extend showSection for smart planner
