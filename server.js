@@ -33,13 +33,34 @@ const BASE_URL = process.env.RAILWAY_PUBLIC_DOMAIN
 app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
-// ─── State (no seed/mock data) ────────────────────────────────────────────────
+// ─── State ────────────────────────────────────────────────────────────────────
 const _saved = loadData();
-const state = {
-  platforms: _saved?.platforms || {
+
+// Restore LinkedIn from env vars if available (survives redeploys)
+function platformsFromEnv() {
+  const p = {
     linkedin:  { connected: false, account: null, token: null },
     instagram: { connected: false, account: null, token: null },
     facebook:  { connected: false, account: null, token: null }
+  };
+  if (process.env.LINKEDIN_TOKEN && process.env.LINKEDIN_ACCOUNT) {
+    try { p.linkedin = { connected: true, token: process.env.LINKEDIN_TOKEN, account: JSON.parse(process.env.LINKEDIN_ACCOUNT) }; } catch(_) {}
+  }
+  if (process.env.FACEBOOK_TOKEN && process.env.FACEBOOK_ACCOUNT) {
+    try { p.facebook = { connected: true, token: process.env.FACEBOOK_TOKEN, account: JSON.parse(process.env.FACEBOOK_ACCOUNT) }; } catch(_) {}
+  }
+  if (process.env.INSTAGRAM_TOKEN && process.env.INSTAGRAM_ACCOUNT) {
+    try { p.instagram = { connected: true, token: process.env.INSTAGRAM_TOKEN, account: JSON.parse(process.env.INSTAGRAM_ACCOUNT) }; } catch(_) {}
+  }
+  return p;
+}
+
+const _envPlatforms = platformsFromEnv();
+const state = {
+  platforms: {
+    linkedin:  _envPlatforms.linkedin.connected  ? _envPlatforms.linkedin  : (_saved?.platforms?.linkedin  || { connected: false, account: null, token: null }),
+    instagram: _envPlatforms.instagram.connected ? _envPlatforms.instagram : (_saved?.platforms?.instagram || { connected: false, account: null, token: null }),
+    facebook:  _envPlatforms.facebook.connected  ? _envPlatforms.facebook  : (_saved?.platforms?.facebook  || { connected: false, account: null, token: null }),
   },
   posts: _saved?.posts || [],
   notifications: [],
@@ -111,6 +132,18 @@ app.get('/api/platforms', (req, res) => {
   res.json(out);
 });
 
+// ─── Export tokens for Railway Variables (to survive redeploys) ───────────────
+app.get('/api/platforms/export-tokens', (req, res) => {
+  const vars = {};
+  for (const [k, v] of Object.entries(state.platforms)) {
+    if (v.connected && v.token) {
+      vars[`${k.toUpperCase()}_TOKEN`] = v.token;
+      vars[`${k.toUpperCase()}_ACCOUNT`] = JSON.stringify(v.account);
+    }
+  }
+  res.json({ instructions: 'Add these as Railway Variables to keep connections after redeploy', vars });
+});
+
 // ─── LinkedIn OAuth ───────────────────────────────────────────────────────────
 app.get('/api/oauth/linkedin/start', (req, res) => {
   const { clientId, redirectUri } = state.credentials.linkedin;
@@ -168,7 +201,7 @@ app.get('/api/oauth/facebook/start', (req, res) => {
   const sid = crypto.randomBytes(8).toString('hex');
   const p = new URLSearchParams({
     client_id: appId, redirect_uri: redirectUri, state: sid,
-    scope: 'pages_show_list,pages_read_engagement,pages_manage_posts,pages_read_user_content,instagram_basic,instagram_content_publish,instagram_manage_insights,public_profile'
+    scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts'
   });
   res.json({ url: `https://www.facebook.com/v18.0/dialog/oauth?${p}`, demo: false });
 });
@@ -226,7 +259,7 @@ app.get('/api/oauth/instagram/start', (req, res) => {
   const sid = crypto.randomBytes(8).toString('hex');
   const p = new URLSearchParams({
     client_id: appId, redirect_uri: redirectUri, state: sid,
-    scope: 'instagram_basic,instagram_content_publish,instagram_manage_insights,pages_show_list,pages_read_engagement,public_profile'
+    scope: 'public_profile,pages_show_list,pages_read_engagement,pages_manage_posts'
   });
   res.json({ url: `https://www.facebook.com/v18.0/dialog/oauth?${p}`, demo: false });
 });
