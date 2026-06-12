@@ -650,7 +650,7 @@ hr.divider{border:none;border-top:1px solid rgba(124,58,237,.08);margin:16px 0;}
           <div class="form-group"><label class="form-label">Client ID</label><input class="form-input" id="li-clientId" type="text" placeholder="86xxxxxxxxxxxxx"></div>
           <div class="form-group"><label class="form-label">Client Secret</label><input class="form-input" id="li-clientSecret" type="password" placeholder="••••••••••••••••"></div>
         </div>
-        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI (add this to your LinkedIn app)</label><input class="form-input" value="http://localhost:3000/oauth/linkedin/callback" readonly style="background:rgba(0,0,0,.03);color:var(--muted);"></div>
+        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI (copy this into your LinkedIn app)</label><input class="form-input" id="li-redirect-uri" value="" readonly style="background:rgba(0,0,0,.03);color:var(--muted);cursor:text;" onclick="this.select()"></div>
         <button class="btn-cta" style="margin-top:4px;" onclick="saveCredentials('linkedin')">Save LinkedIn Credentials</button>
       </div>
 
@@ -666,7 +666,7 @@ hr.divider{border:none;border-top:1px solid rgba(124,58,237,.08);margin:16px 0;}
           <div class="form-group"><label class="form-label">App ID</label><input class="form-input" id="ig-appId" type="text" placeholder="123456789012345"></div>
           <div class="form-group"><label class="form-label">App Secret</label><input class="form-input" id="ig-appSecret" type="password" placeholder="••••••••••••••••"></div>
         </div>
-        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI (add this to your Facebook app)</label><input class="form-input" value="http://localhost:3000/oauth/instagram/callback" readonly style="background:rgba(0,0,0,.03);color:var(--muted);"></div>
+        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI (copy this into your Facebook app)</label><input class="form-input" id="ig-redirect-uri" value="" readonly style="background:rgba(0,0,0,.03);color:var(--muted);cursor:text;" onclick="this.select()"></div>
         <button class="btn-cta" style="margin-top:4px;" onclick="saveCredentials('instagram')">Save Instagram Credentials</button>
       </div>
 
@@ -682,7 +682,7 @@ hr.divider{border:none;border-top:1px solid rgba(124,58,237,.08);margin:16px 0;}
           <div class="form-group"><label class="form-label">App ID</label><input class="form-input" id="fb-appId" type="text" placeholder="123456789012345"></div>
           <div class="form-group"><label class="form-label">App Secret</label><input class="form-input" id="fb-appSecret" type="password" placeholder="••••••••••••••••"></div>
         </div>
-        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI</label><input class="form-input" value="http://localhost:3000/oauth/facebook/callback" readonly style="background:rgba(0,0,0,.03);color:var(--muted);"></div>
+        <div class="form-group" style="margin-top:4px;"><label class="form-label">Redirect URI (copy this into your Facebook app)</label><input class="form-input" id="fb-redirect-uri" value="" readonly style="background:rgba(0,0,0,.03);color:var(--muted);cursor:text;" onclick="this.select()"></div>
         <button class="btn-cta" style="margin-top:4px;" onclick="saveCredentials('facebook')">Save Facebook Credentials</button>
       </div>
     </div>
@@ -799,7 +799,7 @@ function showSection(id) {
   if(id === 'monitor') startMonitor();
   if(id === 'content') loadScheduled();
   if(id === 'accounts') renderAccountCards();
-  if(id === 'settings') checkAIStatus();
+  if(id === 'settings') { checkAIStatus(); loadRedirectURIs(); }
 }
 
 // ── Platform Loading ─────────────────────────────────────────────
@@ -1499,6 +1499,26 @@ function updateAIStatusBadge(active) {
   badge.textContent = active ? '✓ GPT-4o-mini Active' : 'Not Active';
   badge.style.background = active ? 'rgba(16,185,129,.1)' : 'rgba(107,114,128,.1)';
   badge.style.color = active ? 'var(--success)' : 'var(--muted)';
+}
+
+async function loadRedirectURIs() {
+  try {
+    const r = await fetch(API+'/api/settings/credentials');
+    const data = await r.json();
+    if(data.linkedin?.redirectUri) {
+      const el = document.getElementById('li-redirect-uri');
+      if(el) el.value = data.linkedin.redirectUri;
+    }
+    if(data.facebook?.redirectUri) {
+      const fb = document.getElementById('fb-redirect-uri');
+      const ig = document.getElementById('ig-redirect-uri');
+      if(fb) fb.value = data.facebook.redirectUri;
+      if(ig) ig.value = data.facebook.redirectUri.replace('/facebook/','/facebook/'); // same app
+    }
+    // Also update configured status
+    if(data.linkedin?.configured) { const el=document.getElementById('li-cred-status'); if(el){el.textContent='Configured ✓';el.className='cred-status cred-configured';} }
+    if(data.facebook?.configured) { const el=document.getElementById('fb-cred-status'); if(el){el.textContent='Configured ✓';el.className='cred-status cred-configured';} const ig=document.getElementById('ig-cred-status'); if(ig){ig.textContent='Configured ✓';ig.className='cred-status cred-configured';} }
+  } catch(e) {}
 }
 
 async function saveCredentials(platform) {
