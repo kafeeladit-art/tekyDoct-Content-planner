@@ -1,7 +1,26 @@
 const express = require('express');
 const path = require('path');
 const crypto = require('crypto');
+const fs = require('fs');
 const OpenAI = require('openai');
+
+// ─── Persistence ──────────────────────────────────────────────────────────────
+const DATA_FILE = path.join(__dirname, 'data.json');
+function loadData() {
+  try { return JSON.parse(fs.readFileSync(DATA_FILE,'utf8')); } catch(_) { return null; }
+}
+function saveData() {
+  try {
+    fs.writeFileSync(DATA_FILE, JSON.stringify({
+      platforms: state.platforms,
+      posts: state.posts.slice(0,500),
+      credentials: {
+        linkedin: { clientId: state.credentials.linkedin.clientId, clientSecret: state.credentials.linkedin.clientSecret },
+        facebook: { appId: state.credentials.facebook.appId, appSecret: state.credentials.facebook.appSecret }
+      }
+    },'utf8'));
+  } catch(e) { console.error('Save error:', e.message); }
+}
 
 const app = express();
 const PORT = process.env.PORT || 3000;
@@ -15,25 +34,26 @@ app.use(express.json());
 app.use(express.static(path.join(__dirname, 'public')));
 
 // ─── State (no seed/mock data) ────────────────────────────────────────────────
+const _saved = loadData();
 const state = {
-  platforms: {
+  platforms: _saved?.platforms || {
     linkedin:  { connected: false, account: null, token: null },
     instagram: { connected: false, account: null, token: null },
     facebook:  { connected: false, account: null, token: null }
   },
-  posts: [],
+  posts: _saved?.posts || [],
   notifications: [],
   oauthSessions: {},
   credentials: {
     openai:   process.env.OPENAI_API_KEY || '',
     linkedin: {
-      clientId:    process.env.LINKEDIN_CLIENT_ID     || '',
-      clientSecret:process.env.LINKEDIN_CLIENT_SECRET || '',
+      clientId:    process.env.LINKEDIN_CLIENT_ID     || _saved?.credentials?.linkedin?.clientId     || '',
+      clientSecret:process.env.LINKEDIN_CLIENT_SECRET || _saved?.credentials?.linkedin?.clientSecret || '',
       redirectUri: process.env.LINKEDIN_REDIRECT_URI  || `${BASE_URL}/oauth/linkedin/callback`
     },
     facebook: {
-      appId:       process.env.FACEBOOK_APP_ID        || '',
-      appSecret:   process.env.FACEBOOK_APP_SECRET    || '',
+      appId:       process.env.FACEBOOK_APP_ID        || _saved?.credentials?.facebook?.appId        || '',
+      appSecret:   process.env.FACEBOOK_APP_SECRET    || _saved?.credentials?.facebook?.appSecret    || '',
       redirectUri: process.env.FACEBOOK_REDIRECT_URI  || `${BASE_URL}/oauth/facebook/callback`
     }
   }
@@ -131,6 +151,7 @@ app.get('/oauth/linkedin/callback', async (req, res) => {
       avatar: (profile.name||'LI')[0].toUpperCase()
     };
     state.platforms.linkedin = { connected: true, account, token: tData.access_token };
+    saveData();
     state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `LinkedIn "${account.name}" connected`, time: new Date().toISOString(), read: false });
     broadcastSSE({type:'connect',platform:'linkedin',msg:`LinkedIn account "${account.name}" connected`,icon:'🔗'});
     res.send(popupMsg('linkedin', true, { account }));
@@ -190,7 +211,7 @@ app.get('/oauth/facebook/callback', async (req, res) => {
       state.platforms.instagram = { connected: true, account: igAccount, token: page.access_token };
       state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Instagram @${ig.username} connected automatically`, time: new Date().toISOString(), read: false });
     }
-
+    saveData();
     res.send(popupMsg('facebook', true, { account: fbAccount }));
   } catch(e) {
     console.error('Facebook callback error:', e.message);
@@ -281,6 +302,7 @@ app.post('/api/posts', async (req, res) => {
   }
 
   state.posts.unshift(post);
+  saveData();
   state.notifications.unshift({ id: 'n'+Date.now(), type: 'success', message: `Post ${post.status} on ${platform}`, time: new Date().toISOString(), read: false });
   if (post.status === 'published') broadcastSSE({type:'publish',platform,msg:`Post published on ${platform}: "${content.slice(0,60)}..."`,icon:'✅'});
   res.json(post);
@@ -543,6 +565,7 @@ app.post('/api/settings/credentials', (req, res) => {
   }
   if (platform==='linkedin') { if(clientId) state.credentials.linkedin.clientId=clientId; if(clientSecret) state.credentials.linkedin.clientSecret=clientSecret; }
   if (platform==='facebook'||platform==='instagram') { if(appId) state.credentials.facebook.appId=appId; if(appSecret) state.credentials.facebook.appSecret=appSecret; }
+  saveData();
   state.notifications.unshift({id:'n'+Date.now(),type:'success',message:`${platform} credentials saved`,time:new Date().toISOString(),read:false});
   res.json({ success:true });
 });
